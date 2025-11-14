@@ -72,4 +72,8 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 kubectl port-forward svc/argocd-server -n argocd 8081:443
 
 kubectl apply -f /home/jukebox/Work/go-sdk/k8s/dev/application.yaml
+
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d
+
 ```
