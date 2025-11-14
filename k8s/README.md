@@ -1,79 +1,90 @@
-# Minikube
-```
-install minikube
-minikube start
-minikube start --memory=3000 --cpus=2
+```bash
+# ===============================
+# 1️⃣ Minikube Setup
+# ===============================
 
-// linux
+# Start minikube with default resources
+minikube start
+
+# Install kubectl (Linux)
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 chmod +x kubectl
 sudo mv kubectl /usr/local/bin/
 kubectl version --client
 
-// verify
+# Verify cluster
 kubectl get nodes
 minikube status
+# Expected Output:
+# NAME       STATUS   ROLES           AGE   VERSION
+# minikube   Ready    control-plane   1m    v1.28.0
 
-// expected output
-NAME       STATUS   ROLES           AGE   VERSION
-minikube   Ready    control-plane   1m    v1.28.0
-
-// launch pod terminal
+# Launch pod terminal (Test network)
 kubectl run -it --rm busybox --image=busybox -- sh
 
-// ping private network ip
+# Ping private network IP
 ping 192.168.1.100
-// expected output
-PING 192.168.1.100 (192.168.1.100): 56 data bytes
-64 bytes from 192.168.1.100: seq=0 ttl=64 time=0.123 ms
-64 bytes from 192.168.1.100: seq=1 ttl=64 time=0.101 ms
-64 bytes from 192.168.1.100: seq=2 ttl=64 time=0.102 ms
---- 192.168.1.100 ping statistics ---
-3 packets transmitted, 3 packets received, 0% packet loss
-round-trip min/avg/max = 0.101/0.108/0.123 ms
+# Expected Output:
+# 64 bytes from 192.168.1.100: seq=0 ttl=64 time=0.123 ms
+# 64 bytes from 192.168.1.100: seq=1 ttl=64 time=0.101 ms
+# 64 bytes from 192.168.1.100: seq=2 ttl=64 time=0.102 ms
+# --- 192.168.1.100 ping statistics ---
+# 3 packets transmitted, 3 packets received, 0% packet loss
 
-// test redis port
+# Test Redis port
 nc -zv 192.168.1.100 6379
 
-// get pods
+# Inspect pods and namespaces
 kubectl get pods -A
 kubectl get pods -n dev
-
-// get namespace
 kubectl get namespaces
 
-```
+# ===============================
+# 2️⃣ Apply Kubernetes Configs
+# ===============================
 
-# Apply config
-```
-kubectl apply -f /home/jukebox/Work/go-sdk/k8s/dev/configmap.yaml
-kubectl apply -f /home/jukebox/Work/go-sdk/k8s/dev/deployment.yaml
-kubectl apply -f /home/jukebox/Work/go-sdk/k8s/dev/service.yaml
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/configmap.yaml
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/deployment.yaml
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/service.yaml
 
+# Describe pods (for debugging)
 kubectl get pods -n dev -o name | xargs -I{} kubectl describe {} -n dev
-```
 
-# Pushing image
-```
-// rebuild
+# ===============================
+# 3️⃣ Docker Image Workflow
+# ===============================
+
+# Rebuild image
 docker build -t my-app:latest .
 
-// tag
+# Tag image
 docker tag my-app:latest c1789/my-app:latest
 
-// push
+# Push image to DockerHub
 docker push c1789/my-app:latest
-```
 
-# ArgoCD
-```
+# ===============================
+# 4️⃣ ArgoCD Setup
+# ===============================
+
+# Install ArgoCD
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Port-forward ArgoCD server (access UI)
 kubectl port-forward svc/argocd-server -n argocd 8081:443
 
-kubectl apply -f /home/jukebox/Work/go-sdk/k8s/dev/application.yaml
+# Apply Application manifest
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/application.yaml
 
+# Get initial admin password
 kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d
 
-```
+# ===============================
+# ✅ Optional Notes / Best Practices
+# ===============================
+# - Use namespaces to separate dev, staging, and prod.
+# - Always check kubectl get pods -n <namespace> after applying manifests.
+# - Use kubectl logs <pod> for debugging runtime issues.
+# - Consider using kustomize or Helm for multi-environment setups.
