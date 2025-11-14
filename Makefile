@@ -8,4 +8,4 @@ build:
 	docker compose up --build -d
 
 run:
-	go run cmd/main.go
+	go run cmd/myapp/main.go

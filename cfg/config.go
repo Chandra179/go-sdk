@@ -11,7 +11,6 @@ type RedisConfig struct {
 	Host     string
 	Port     string
 	Password string
-	DB       int
 }
 
 type Config struct {
@@ -27,7 +26,6 @@ func Load() (*Config, error) {
 	appEnv := mustEnv("APP_ENV", &errs)
 	host := mustEnv("REDIS_HOST", &errs)
 	port := mustEnv("REDIS_PORT", &errs)
-	password := mustEnv("REDIS_PASSWORD", &errs)
 
 	// If any error collected, group them into one
 	if len(errs) > 0 {
@@ -37,10 +35,8 @@ func Load() (*Config, error) {
 	return &Config{
 		AppEnv: appEnv,
 		Redis: RedisConfig{
-			Host:     host,
-			Port:     port,
-			Password: password,
-			DB:       0,
+			Host: host,
+			Port: port,
 		},
 	}, nil
 }
