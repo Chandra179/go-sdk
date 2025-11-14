@@ -73,6 +73,7 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 
 # Port-forward ArgoCD server (access UI)
 kubectl port-forward svc/argocd-server -n argocd 8081:443
+kubectl port-forward svc/my-app -n dev 8080:80
 
 # Apply Application manifest
 kubectl apply -f /home/jukebox/Work/go-sdk/k8s/application.yaml
