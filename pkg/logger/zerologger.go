@@ -8,7 +8,7 @@ import (
 )
 
 type ZeroLogger struct {
-	logger zerolog.Logger
+	zlogger zerolog.Logger
 }
 
 func NewZeroLog(env string) *ZeroLogger {
@@ -25,7 +25,7 @@ func NewWithWriter(env string, w io.Writer) *ZeroLogger {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
-	return &ZeroLogger{logger: logger}
+	return &ZeroLogger{zlogger: logger}
 }
 
 // helper to convert our abstraction []Field -> zerolog fields
@@ -38,17 +38,17 @@ func convert(fields []Field) []any {
 }
 
 func (l *ZeroLogger) Debug(msg string, fields ...Field) {
-	l.logger.Debug().Fields(convert(fields)).Msg(msg)
+	l.zlogger.Debug().Fields(convert(fields)).Msg(msg)
 }
 
 func (l *ZeroLogger) Info(msg string, fields ...Field) {
-	l.logger.Info().Fields(convert(fields)).Msg(msg)
+	l.zlogger.Info().Fields(convert(fields)).Msg(msg)
 }
 
 func (l *ZeroLogger) Warn(msg string, fields ...Field) {
-	l.logger.Warn().Fields(convert(fields)).Msg(msg)
+	l.zlogger.Warn().Fields(convert(fields)).Msg(msg)
 }
 
 func (l *ZeroLogger) Error(msg string, fields ...Field) {
-	l.logger.Error().Fields(convert(fields)).Msg(msg)
+	l.zlogger.Error().Fields(convert(fields)).Msg(msg)
 }
