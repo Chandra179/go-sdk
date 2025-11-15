@@ -26,10 +26,17 @@ type Oauth2Config struct {
 	StateTimeout       time.Duration
 }
 
+type ObservabilityConfig struct {
+	OTLPEndpoint string
+	ServiceName  string
+	Environment  string
+}
+
 type Config struct {
-	AppEnv string
-	Redis  RedisConfig
-	OAuth2 Oauth2Config
+	AppEnv        string
+	Redis         RedisConfig
+	OAuth2        Oauth2Config
+	Observability ObservabilityConfig
 }
 
 func Load() (*Config, error) {
@@ -46,7 +53,7 @@ func Load() (*Config, error) {
 	// Redis
 	host := mustEnv("REDIS_HOST", &errs)
 	port := mustEnv("REDIS_PORT", &errs)
-	password := mustEnv("REDIS_PASSWORD", &errs)
+	password := getEnvOrDefault("REDIS_PASSWORD", "")
 
 	// OAuth2
 	googleClientID := mustEnv("GOOGLE_CLIENT_ID", &errs)
@@ -70,6 +77,11 @@ func Load() (*Config, error) {
 		errs = append(errs, errors.New("invalid duration for STATE_TIMEOUT: "+stateTimeoutStr))
 	}
 
+	// Observability (optional with defaults)
+	otlpEndpoint := getEnvOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "alloy.observability.svc.cluster.local:4317")
+	serviceName := getEnvOrDefault("OTEL_SERVICE_NAME", "gosdk-app")
+	environment := getEnvOrDefault("OTEL_RESOURCE_ATTRIBUTES", appEnv)
+
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -92,6 +104,11 @@ func Load() (*Config, error) {
 			JWTExpiration:      jwtExpiration,
 			StateTimeout:       stateTimeout,
 		},
+		Observability: ObservabilityConfig{
+			OTLPEndpoint: otlpEndpoint,
+			ServiceName:  serviceName,
+			Environment:  environment,
+		},
 	}, nil
 }
 
@@ -100,6 +117,15 @@ func mustEnv(key string, errs *[]error) string {
 	value, exists := os.LookupEnv(key)
 	if !exists || value == "" {
 		*errs = append(*errs, errors.New("missing env: "+key))
+	}
+	return value
+}
+
+// getEnvOrDefault returns environment variable value or default if not set.
+func getEnvOrDefault(key, defaultValue string) string {
+	value, exists := os.LookupEnv(key)
+	if !exists || value == "" {
+		return defaultValue
 	}
 	return value
 }

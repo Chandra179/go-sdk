@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"gosdk/cfg"
-	"gosdk/pkg/cache"
 	"gosdk/pkg/logger"
 	"gosdk/pkg/oauth2"
 	"log"
@@ -18,8 +17,10 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
@@ -28,42 +29,80 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func initTracer(serviceName, alloyEndpoint string) (func(context.Context) error, error) {
-	ctx := context.Background()
-
-	// Create OTLP trace exporter
-	conn, err := grpc.NewClient(alloyEndpoint,
+// initTracer initializes OpenTelemetry tracer with OTLP exporter
+func initTracer(ctx context.Context, config *cfg.ObservabilityConfig) (func(context.Context) error, error) {
+	conn, err := grpc.NewClient(
+		config.OTLPEndpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC connection to collector: %w", err)
 	}
 
-	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
+	traceExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
 	}
 
-	// Create resource with service name
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceName(serviceName),
+			semconv.ServiceName(config.ServiceName),
+			semconv.DeploymentEnvironment(config.Environment),
 		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Create trace provider
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+		sdktrace.WithBatcher(traceExporter),
 		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 	)
 
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
+	log.Printf("OpenTelemetry tracer initialized - sending to: %s", config.OTLPEndpoint)
+
 	return tp.Shutdown, nil
+}
+
+// initMeter initializes OpenTelemetry meter with OTLP exporter
+func initMeter(ctx context.Context, config *cfg.ObservabilityConfig) (func(context.Context) error, error) {
+	conn, err := grpc.NewClient(
+		config.OTLPEndpoint,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gRPC connection to collector: %w", err)
+	}
+
+	metricExporter, err := otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithGRPCConn(conn))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metric exporter: %w", err)
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceName(config.ServiceName),
+			semconv.DeploymentEnvironment(config.Environment),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create resource: %w", err)
+	}
+
+	mp := metric.NewMeterProvider(
+		metric.WithReader(metric.NewPeriodicReader(metricExporter)),
+		metric.WithResource(res),
+	)
+
+	otel.SetMeterProvider(mp)
+
+	log.Printf("OpenTelemetry meter initialized - sending to: %s", config.OTLPEndpoint)
+
+	return mp.Shutdown, nil
 }
 
 // TraceLoggerMiddleware extracts trace_id and span_id from the request context and attaches it to logger
@@ -78,7 +117,6 @@ func TraceLoggerMiddleware(log logger.Logger) gin.HandlerFunc {
 			c.Set("trace_id", traceID)
 			c.Set("span_id", spanID)
 
-			// Log request with trace information
 			log.Info("incoming request",
 				logger.Field{Key: "trace_id", Value: traceID},
 				logger.Field{Key: "span_id", Value: spanID},
@@ -89,7 +127,6 @@ func TraceLoggerMiddleware(log logger.Logger) gin.HandlerFunc {
 
 		c.Next()
 
-		// Log response
 		if span.SpanContext().IsValid() {
 			traceID := span.SpanContext().TraceID().String()
 			spanID := span.SpanContext().SpanID().String()
@@ -106,6 +143,8 @@ func TraceLoggerMiddleware(log logger.Logger) gin.HandlerFunc {
 }
 
 func main() {
+	ctx := context.Background()
+
 	// ============
 	// config
 	// ============
@@ -118,21 +157,38 @@ func main() {
 	// logger
 	// ============
 	zlogger := logger.NewZeroLog(config.AppEnv)
-	fmt.Println(zlogger)
+	log.Printf("Logger initialized for environment: %s", config.AppEnv)
 
 	// ============
 	// OpenTelemetry Tracing
 	// ============
-	alloyEndpoint := "alloy:4317" // Alloy OTLP gRPC receiver
-	shutdown, err := initTracer("gosdk-app", alloyEndpoint)
+	shutdownTracer, err := initTracer(ctx, &config.Observability)
 	if err != nil {
-		log.Printf("failed to initialize tracer: %v", err)
+		log.Printf("WARNING: failed to initialize tracer: %v", err)
+		log.Printf("Continuing without tracing...")
 	} else {
 		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := shutdown(ctx); err != nil {
+			if err := shutdownTracer(shutdownCtx); err != nil {
 				log.Printf("failed to shutdown tracer: %v", err)
+			}
+		}()
+	}
+
+	// ============
+	// OpenTelemetry Metrics
+	// ============
+	shutdownMeter, err := initMeter(ctx, &config.Observability)
+	if err != nil {
+		log.Printf("WARNING: failed to initialize meter: %v", err)
+		log.Printf("Continuing without OTLP metrics...")
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := shutdownMeter(shutdownCtx); err != nil {
+				log.Printf("failed to shutdown meter: %v", err)
 			}
 		}()
 	}
@@ -140,8 +196,9 @@ func main() {
 	// ============
 	// cache
 	// ============
-	redisCache := cache.NewRedisCache(config.Redis.Host + ":" + config.Redis.Port)
-	fmt.Println(redisCache)
+	redisAddr := config.Redis.Host + ":" + config.Redis.Port
+	// redisCache := cache.NewRedisCache(redisAddr)
+	log.Printf("Redis cache initialized at: %s", redisAddr)
 
 	// ============
 	// oauth2
@@ -156,13 +213,24 @@ func main() {
 	// ============
 	// Middleware
 	// ============
-	// OpenTelemetry instrumentation
-	r.Use(otelgin.Middleware("gosdk-app"))
+	// OpenTelemetry instrumentation for tracing
+	r.Use(otelgin.Middleware(config.Observability.ServiceName))
 	// Trace logger middleware
 	r.Use(TraceLoggerMiddleware(zlogger))
 
 	// ============
-	// Prometheus metrics
+	// Health check endpoint
+	// ============
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status":  "healthy",
+			"service": config.Observability.ServiceName,
+			"env":     config.AppEnv,
+		})
+	})
+
+	// ============
+	// Prometheus metrics endpoint
 	// ============
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
@@ -227,5 +295,8 @@ func main() {
 	api := r.Group("/api")
 	api.GET("/me", oauth2.MeHandler(oauth2mgr))
 
-	r.Run(":8080")
+	log.Printf("Starting server on :8080")
+	if err := r.Run(":8080"); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }

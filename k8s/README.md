@@ -39,16 +39,46 @@ kubectl get pods -A
 kubectl get pods -n dev
 kubectl get namespaces
 
+# Enable ingress
+minikube addons enable ingress
+
 # ===============================
 # 2️⃣ Apply Kubernetes Configs
 # ===============================
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/namespace.yaml
 
-kubectl apply -f /home/jukebox/Work/go-sdk/k8s/configmap.yaml
-kubectl apply -f /home/jukebox/Work/go-sdk/k8s/deployment.yaml
-kubectl apply -f /home/jukebox/Work/go-sdk/k8s/service.yaml
+# Deploy Loki
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/loki-deployment.yaml
+
+# Deploy Prometheus
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/prometheus-config.yaml
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/prometheus-deployment.yaml
+
+# Deploy Grafana
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/grafana-config.yaml
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/grafana-deployment.yaml
+
+# Tracing
+kubectl apply -f k8s/observability/jaeger-deployment.yaml
+
+# Alloy
+kubectl apply -f k8s/observability/alloy-config.yaml
+kubectl apply -f k8s/observability/alloy-deployment.yaml
+
+# Ingress
+kubectl apply -f k8s/observability/ingress.yaml
+
+# App
+kubectl apply -f /home/jukebox/Work/go-sdk/k8s/app.yaml
 
 # Describe pods (for debugging)
 kubectl get pods -n dev -o name | xargs -I{} kubectl describe {} -n dev
+
+# verify its running
+kubectl get pods -n ingress-nginx
+
+# wait pods to be ready
+kubectl get pods -n observability -w
 
 # ===============================
 # 3️⃣ Docker Image Workflow
@@ -75,9 +105,6 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 kubectl port-forward svc/argocd-server -n argocd 8081:443
 kubectl port-forward svc/my-app -n dev 8080:80
 
-# Apply Application manifest
-kubectl apply -f /home/jukebox/Work/go-sdk/k8s/application.yaml
-
 # Get initial admin password
 kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d
@@ -89,3 +116,17 @@ kubectl -n argocd get secret argocd-initial-admin-secret \
 # - Always check kubectl get pods -n <namespace> after applying manifests.
 # - Use kubectl logs <pod> for debugging runtime issues.
 # - Consider using kustomize or Helm for multi-environment setups.
+
+# ===============================
+# 🌐 Access the Services
+# ===============================
+minikube ip
+
+# Replace <MINIKUBE_IP> with your actual Minikube IP
+sudo nano /etc/hosts
+
+192.168.49.2 grafana.local
+192.168.49.2 prometheus.local
+192.168.49.2 jaeger.local
+192.168.49.2 alloy.local
+192.168.49.2 app.local
