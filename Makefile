@@ -9,3 +9,6 @@ build:
 
 run:
 	go run cmd/myapp/main.go
+
+swag:
+	swag init -g /cmd/myapp/main.go -o api
