@@ -8,6 +8,7 @@ import (
 	"gosdk/pkg/oauth2"
 	"log"
 	"math/rand"
+	"net/http"
 	"time"
 
 	_ "gosdk/api" // swagger docs
@@ -269,13 +270,19 @@ func main() {
 	api.GET("/me", oauth2.MeHandler(oauth2mgr))
 
 	log.Printf("Starting server on :8080")
-	RandomLog()
+	go RandomLog(zlogger)
+
+	r.GET("/ping", func(c *gin.Context) {
+		c.JSON(200, gin.H{"message": "pong"})
+	})
+	StartAutoPing()
+
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
 
-func RandomLog() {
+func RandomLog(log logger.Logger) {
 	for {
 		logLevels := []string{"INFO", "WARN", "ERROR", "DEBUG"}
 		messages := []string{
@@ -296,7 +303,30 @@ func RandomLog() {
 		level := logLevels[rand.Intn(len(logLevels))]
 		msg := messages[rand.Intn(len(messages))]
 
-		log.Printf("[%s] %s\n", level, msg)
+		log.Info("request completed",
+			logger.Field{Key: "level", Value: level},
+			logger.Field{Key: "msg", Value: msg},
+		)
 		time.Sleep(5 * time.Second) // wait 5 seconds
 	}
+}
+
+// StartAutoPing automatically calls the /ping endpoint every few seconds
+func StartAutoPing() {
+	go func() {
+		client := http.Client{Timeout: 2 * time.Second}
+
+		for {
+			time.Sleep(3 * time.Second)
+
+			resp, err := client.Get("http://localhost:8080/ping")
+			if err != nil {
+				log.Printf("auto-call error: %v", err)
+				continue
+			}
+
+			_ = resp.Body.Close()
+			log.Println("auto-called /ping")
+		}
+	}()
 }
