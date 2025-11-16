@@ -8,7 +8,7 @@ data:
   REDIS_HOST: "192.168.1.4"
   REDIS_PORT: "6379"
   # OpenTelemetry
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://alloy.observability.svc.cluster.local:4317"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "alloy.observability.svc.cluster.local:4317"
   OTEL_SERVICE_NAME: "my-app"
   OTEL_RESOURCE_ATTRIBUTES: "environment=dev"
 
