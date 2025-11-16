@@ -14,5 +14,16 @@ spec:
     namespace: dev
   syncPolicy:
     automated:
-      prune: true
-      selfHeal: true
+      prune: true      # Delete resources that are no longer in git
+      selfHeal: true   # Revert manual changes
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
