@@ -34,7 +34,7 @@ data:
       - name: Jaeger
         type: jaeger
         access: proxy
-        url: http://jaeger.observability.svc.cluster.local:16686
+        url: http://jaeger.observability.svc.cluster.local:16685
         isDefault: false
         editable: true
         jsonData:
