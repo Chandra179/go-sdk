@@ -1,12 +1,3 @@
-########################################
-# CONFIGURABLE PARAMETERS
-########################################
-
-# Minikube
-CPUS ?= 2
-MEMORY ?= 4096
-DISK ?= 20g
-
 # Kubernetes
 NAMESPACE ?= dev
 
@@ -18,22 +9,13 @@ IMAGE ?= my-app
 VERSION ?= latest
 DOCKER_USER ?= c1789
 
-
-########################################
-# MAIN TARGETS
-########################################
-
-.PHONY: all
-all: deploy
-
 ########################################
 # 1️⃣ MINIKUBE SETUP
 ########################################
 
 .PHONY: minikube-start
 minikube-start:
-	minikube start
-# 	minikube start --cpus=$(CPUS) --memory=$(MEMORY) --disk-size=$(DISK)
+	./start-minikube.sh $(NAMESPACE)
 
 .PHONY: kubectl-install
 kubectl-install:
@@ -65,10 +47,6 @@ k8s-info:
 	kubectl get pods -n $(NAMESPACE)
 	kubectl get namespaces
 
-.PHONY: enable-ingress
-enable-ingress:
-	minikube addons enable ingress
-
 .PHONY: describe-all
 describe-all:
 	kubectl get pods -n $(NAMESPACE) -o name | xargs -I{} kubectl describe {} -n $(NAMESPACE)
@@ -84,9 +62,6 @@ wait-observability:
 ########################################
 # 2️⃣ DEPLOYMENT (YOUR YAML FILES)
 ########################################
-
-.PHONY: deploy
-deploy: namespace loki prometheus grafana jaeger alloy ingress app
 
 .PHONY: apply-all
 apply-all:
@@ -118,43 +93,9 @@ argocd-password:
 	 -o jsonpath="{.data.password}" | base64 -d; echo
 
 ########################################
-# 5️⃣ ACCESS SERVICES
-########################################
-
-.PHONY: minikube-ip
-minikube-ip:
-	minikube ip
-
-# THIS ONE DOESNT WORK
-# Replace <MINIKUBE_IP> with your actual Minikube IP
-# sudo nano /etc/hosts
-
-# 192.168.49.2 grafana.local
-# 192.168.49.2 prometheus.local
-# 192.168.49.2 jaeger.local
-# 192.168.49.2 alloy.local
-# 192.168.49.2 app.local
-
-# Port forward the ingress controller
-# kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8080:80
-# ```
-
-# Update your `/etc/hosts`:
-# ```
-# 127.0.0.1 grafana.local
-# 127.0.0.1 prometheus.local
-# 127.0.0.1 jaeger.local
-# 127.0.0.1 alloy.local
-# 127.0.0.1 app.local
-
-
-########################################
 # 6️⃣ CLEANUP
 ########################################
 
 .PHONY: clean
 clean:
 	kubectl delete -f .
-
-tunnel:
-	minikube tunnel
