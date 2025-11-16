@@ -1,0 +1,151 @@
+########################################
+# CONFIGURABLE PARAMETERS
+########################################
+
+# Minikube
+CPUS ?= 2
+MEMORY ?= 4096
+DISK ?= 20g
+
+# Kubernetes
+NAMESPACE ?= dev
+
+########################################
+# MAIN TARGETS
+########################################
+
+.PHONY: all
+all: deploy
+
+########################################
+# 1️⃣ MINIKUBE SETUP
+########################################
+
+.PHONY: minikube-start
+minikube-start:
+	minikube start
+# 	minikube start --cpus=$(CPUS) --memory=$(MEMORY) --disk-size=$(DISK)
+
+.PHONY: kubectl-install
+kubectl-install:
+	curl -LO "https://dl.k8s.io/release/$$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+	chmod +x kubectl
+	sudo mv kubectl /usr/local/bin/
+	kubectl version --client
+
+.PHONY: cluster-info
+cluster-info:
+	kubectl get nodes
+	minikube status
+
+.PHONY: busybox
+busybox:
+	kubectl run -it --rm busybox --image=busybox -- sh
+
+.PHONY: test-ping
+test-ping:
+	ping 192.168.1.100
+
+.PHONY: test-redis
+test-redis:
+	nc -zv 192.168.1.100 6379
+
+.PHONY: k8s-info
+k8s-info:
+	kubectl get pods -A
+	kubectl get pods -n $(NAMESPACE)
+	kubectl get namespaces
+
+.PHONY: enable-ingress
+enable-ingress:
+	minikube addons enable ingress
+
+.PHONY: describe-all
+describe-all:
+	kubectl get pods -n $(NAMESPACE) -o name | xargs -I{} kubectl describe {} -n $(NAMESPACE)
+
+.PHONY: ingress-status
+ingress-status:
+	kubectl get pods -n ingress-nginx
+
+.PHONY: wait-observability
+wait-observability:
+	kubectl get pods -n observability -w
+
+########################################
+# 2️⃣ DEPLOYMENT (YOUR YAML FILES)
+########################################
+
+.PHONY: deploy
+deploy: namespace loki prometheus grafana jaeger alloy ingress app
+
+.PHONY: apply-all
+apply-all:
+	@for f in *.yaml; do \
+		echo "Applying $$f"; \
+		kubectl apply -f $$f; \
+	done
+
+########################################
+# 4️⃣ ARGOCD SETUP
+########################################
+
+.PHONY: argocd-install
+argocd-install:
+	kubectl create namespace argocd || true
+	kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+.PHONY: argocd-port
+argocd-port:
+	kubectl port-forward svc/argocd-server -n argocd 8081:443
+
+.PHONY: app-port
+app-port:
+	kubectl port-forward svc/$(IMAGE) -n $(NAMESPACE) 8080:80
+
+.PHONY: argocd-password
+argocd-password:
+	kubectl -n argocd get secret argocd-initial-admin-secret \
+	 -o jsonpath="{.data.password}" | base64 -d; echo
+
+########################################
+# 5️⃣ ACCESS SERVICES
+########################################
+
+.PHONY: minikube-ip
+minikube-ip:
+	minikube ip
+
+# THIS ONE DOESNT WORK
+# Replace <MINIKUBE_IP> with your actual Minikube IP
+# sudo nano /etc/hosts
+
+# 192.168.49.2 grafana.local
+# 192.168.49.2 prometheus.local
+# 192.168.49.2 jaeger.local
+# 192.168.49.2 alloy.local
+# 192.168.49.2 app.local
+
+# Port forward the ingress controller
+# kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8080:80
+# ```
+
+# Update your `/etc/hosts`:
+# ```
+# 127.0.0.1 grafana.local
+# 127.0.0.1 prometheus.local
+# 127.0.0.1 jaeger.local
+# 127.0.0.1 alloy.local
+# 127.0.0.1 app.local
+
+
+########################################
+# 6️⃣ CLEANUP
+########################################
+
+.PHONY: clean
+clean:
+	kubectl delete -f .
+
+tunnel:
+	minikube tunnel

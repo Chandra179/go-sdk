@@ -7,6 +7,7 @@ import (
 	"gosdk/pkg/logger"
 	"gosdk/pkg/oauth2"
 	"log"
+	"math/rand"
 	"time"
 
 	_ "gosdk/api" // swagger docs
@@ -213,9 +214,7 @@ func main() {
 	// ============
 	// Middleware
 	// ============
-	// OpenTelemetry instrumentation for tracing
 	r.Use(otelgin.Middleware(config.Observability.ServiceName))
-	// Trace logger middleware
 	r.Use(TraceLoggerMiddleware(zlogger))
 
 	// ============
@@ -238,8 +237,6 @@ func main() {
 	// swagger & redoc
 	// ============
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
-	// Serve Redoc
 	r.GET("/docs", func(c *gin.Context) {
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		html := `<!DOCTYPE html>
@@ -252,30 +249,6 @@ func main() {
 <body>
     <script id="api-reference" data-url="/swagger/doc.json"></script>
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
-</body>
-</html>`
-		c.String(200, html)
-	})
-
-	r.GET("/rapidoc", func(c *gin.Context) {
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		html := `<!DOCTYPE html>
-<html>
-<head>
-    <title>API Documentation</title>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script type="module" src="https://unpkg.com/rapidoc/dist/rapidoc-min.js"></script>
-</head>
-<body>
-    <rapi-doc 
-        spec-url="/swagger/doc.json"
-        theme="dark"
-        render-style="read"
-        show-header="false"
-        allow-try="true"
-        allow-server-selection="true"
-    ></rapi-doc>
 </body>
 </html>`
 		c.String(200, html)
@@ -296,7 +269,34 @@ func main() {
 	api.GET("/me", oauth2.MeHandler(oauth2mgr))
 
 	log.Printf("Starting server on :8080")
+	RandomLog()
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
+	}
+}
+
+func RandomLog() {
+	for {
+		logLevels := []string{"INFO", "WARN", "ERROR", "DEBUG"}
+		messages := []string{
+			"Starting service...",
+			"Request received.",
+			"Connecting to database...",
+			"User authenticated.",
+			"Cache miss, fetching from source.",
+			"Background job started.",
+			"API integration timeout.",
+			"Payment processed successfully.",
+			"Retrying request...",
+			"Shutting down gracefully.",
+		}
+
+		rand.Seed(time.Now().UnixNano())
+
+		level := logLevels[rand.Intn(len(logLevels))]
+		msg := messages[rand.Intn(len(messages))]
+
+		log.Printf("[%s] %s\n", level, msg)
+		time.Sleep(5 * time.Second) // wait 5 seconds
 	}
 }
