@@ -2,6 +2,7 @@ package cfg
 
 import (
 	"errors"
+	"log"
 	"os"
 	"time"
 
@@ -44,7 +45,7 @@ func Load() (*Config, error) {
 
 	err := godotenv.Load() // ignore if .env missing (local only)
 	if err != nil {
-		errs = append(errs, err)
+		log.Print("skip error godot load env")
 	}
 
 	// App
