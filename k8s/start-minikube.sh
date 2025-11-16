@@ -37,7 +37,6 @@ xdg-open http://grafana.local &
 xdg-open http://prometheus.local &
 xdg-open http://jaeger.local &
 xdg-open http://alloy.local &
-xdg-open http://app.local &
 xdg-open http://localhost:8081 &
 
 echo "Done! Minikube running, tunnel started, port-forwards active, services opened in browser."
