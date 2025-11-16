@@ -31,6 +31,7 @@ spec:
       containers:
         - name: my-app
           image: c1789/my-app:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           envFrom:
