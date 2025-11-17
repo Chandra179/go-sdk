@@ -6,34 +6,28 @@ metadata:
 data:
   datasources.yml: |
     apiVersion: 1
-    
-    datasources:
-      - name: Prometheus
-        type: prometheus
-        access: proxy
-        uid: prometheus
-        orgId: 1
-        url: http://prometheus.observability.svc.cluster.local:9090
-        isDefault: true
-        editable: true
-        version: 1
 
+    datasources:
+      # Loki for logs
       - name: Loki
         type: loki
         access: proxy
-        uid: loki
-        orgId: 1
         url: http://loki.observability.svc.cluster.local:3100
         isDefault: false
         editable: true
-        version: 1
 
+      # Prometheus for metrics
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.observability.svc.cluster.local:9090
+        isDefault: true
+        editable: true
+
+      # Jaeger for traces
       - name: Jaeger
         type: jaeger
         access: proxy
-        uid: jaeger
-        orgId: 1
         url: http://jaeger.observability.svc.cluster.local:16686
         isDefault: false
         editable: true
-        version: 1
