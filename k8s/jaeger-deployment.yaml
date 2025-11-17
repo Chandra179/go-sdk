@@ -50,9 +50,6 @@ spec:
     - port: 16686
       targetPort: 16686
       name: ui
-    - port: 16685
-      targetPort: 16685
-      name: query
     - port: 14250
       targetPort: 14250
       name: grpc
