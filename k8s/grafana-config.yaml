@@ -37,7 +37,7 @@ data:
         type: jaeger
         access: proxy
         uid: jaeger  # Add explicit UID to match the reference above
-        url: http://jaeger.observability.svc.cluster.local:16685
+        url: http://jaeger.observability.svc.cluster.local:16686
         isDefault: false
         editable: true
         jsonData:
