@@ -1,4 +1,44 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: observability
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # Prometheus self-monitoring
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # Alloy metrics
+      - job_name: 'alloy'
+        static_configs:
+          - targets: ['alloy.observability.svc.cluster.local:12345']
+
+      # Your app in dev namespace
+      - job_name: 'my-app'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - dev
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: my-app
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: $1:8080
+
+---
+
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: prometheus-pvc
@@ -9,7 +49,9 @@ spec:
   resources:
     requests:
       storage: 10Gi
+
 ---
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,7 +99,9 @@ spec:
         - name: prometheus-storage
           persistentVolumeClaim:
             claimName: prometheus-pvc
+
 ---
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -71,13 +115,17 @@ spec:
       targetPort: 9090
       name: http
   type: ClusterIP
+
 ---
+
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: prometheus
   namespace: observability
+
 ---
+
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -96,7 +144,9 @@ rules:
     resources:
       - ingresses
     verbs: ["get", "list", "watch"]
+
 ---
+
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

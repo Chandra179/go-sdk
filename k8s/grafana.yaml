@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: observability
+data:
+  datasources.yml: |
+    apiVersion: 1
+
+    datasources:
+      # Loki for logs
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki.observability.svc.cluster.local:3100
+        isDefault: false
+        editable: true
+        jsonData:
+          maxLines: 1000
+          derivedFields:
+            # Field with internal link pointing to data source in Grafana.
+            # datasourceUid value can be anything, but it should be unique across all defined data source uids.
+            - datasourceUid: EbPG8fYoz
+              matcherRegex: "traceID=(\\w+)"
+              name: TraceID
+              # url will be interpreted as query for the datasource
+              url: '$${__value.raw}'
+              # optional for URL Label to set a custom display label for the link.
+              urlDisplayLabel: 'View Trace'
+
+            # Field with external link.
+            - matcherRegex: "traceID=(\\w+)"
+              name: TraceID
+          url: 'http://jaeger.observability.svc.cluster.local:16686/trace/$${__value.raw}'
+
+      # Prometheus for metrics
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.observability.svc.cluster.local:9090
+        isDefault: true
+        editable: true
+
+      # Jaeger for traces
+      - name: Jaeger
+        type: jaeger
+        access: proxy
+        uid: EbPG8fYoz
+        url: http://jaeger.observability.svc.cluster.local:16686
+        isDefault: false
+        editable: true
+        jsonData:
+          tracesToLogsV2:
+            # Field with an internal link pointing to a logs data source in Grafana.
+            # datasourceUid value must match the uid value of the logs data source.
+            datasourceUid: 'loki'
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '-1h'
+            tags: ['job', 'instance', 'pod', 'namespace']
+            filterByTraceID: false
+            filterBySpanID: false
+            customQuery: true
+            query: 'method="$${__span.tags.method}"'
+          tracesToMetrics:
+            datasourceUid: 'prom'
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '-1h'
+            tags: [{ key: 'service.name', value: 'service' }, { key: 'job' }]
+            queries:
+              - name: 'Sample query'
+                query: 'sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m]))'
+          nodeGraph:
+            enabled: true
+          traceQuery:
+            timeShiftEnabled: true
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '-1h'
+          spanBar:
+            type: 'None'
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: observability
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin
+            - name: GF_PATHS_PROVISIONING
+              value: /etc/grafana/provisioning
+          ports:
+            - containerPort: 3000
+              name: http
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: /var/lib/grafana
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: grafana-storage
+          persistentVolumeClaim:
+            claimName: grafana-pvc
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+  type: ClusterIP

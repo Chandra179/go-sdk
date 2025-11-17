@@ -110,19 +110,11 @@ fi
 echo ""
 echo "📊 Phase 4: Deploying observability stack..."
 
-# Apply configs first
-kubectl apply -f prometheus-config.yaml
-kubectl apply -f grafana-config.yaml
-kubectl apply -f alloy-config.yaml
-
-# Apply deployments
-kubectl apply -f loki-deployment.yaml
-kubectl apply -f prometheus-deployment.yaml
-kubectl apply -f grafana-deployment.yaml
-kubectl apply -f jaeger-deployment.yaml
-kubectl apply -f alloy-deployment.yaml
-
-# App
+kubectl apply -f prometheus.yaml
+kubectl apply -f grafana.yaml
+kubectl apply -f alloy.yaml
+kubectl apply -f loki.yaml
+kubectl apply -f jaeger.yaml
 kubectl apply -f app.yaml
 
 log_info "Waiting for observability pods to be ready..."
@@ -142,7 +134,7 @@ log_info "Ingress rules applied"
 
 # Give ingress time to configure routes
 log_info "Waiting for ingress to configure routes (15s)..."
-sleep 15
+sleep 10
 
 #############################################
 # PHASE 6: REGISTER ARGOCD APPLICATION
@@ -199,8 +191,8 @@ else
   }
   
   # Wait for tunnel to establish
-  log_info "Waiting for tunnel to establish (15s)..."
-  sleep 10
+  log_info "Waiting for tunnel to establish (7s)..."
+  sleep 7
 fi
 
 #############################################
@@ -278,7 +270,7 @@ echo "🏥 Phase 10: Running final health checks..."
 
 # Wait for everything to be truly ready
 log_info "Waiting for all services to be fully ready (20s)..."
-sleep 20
+sleep 15
 
 # Check pod status
 echo ""
