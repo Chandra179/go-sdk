@@ -16,16 +16,16 @@ apply:
 	echo "🚀 Applying $$FILE"; \
 	kubectl apply -f $$FILE
 
-restart:
-	@if [ "$(word 2, $(MAKECMDGOALS))" = "" ]; then \
-		echo "❌ Usage: make restart <deployment-name>"; \
+roll:
+	@if [ "$(word 2,$(MAKECMDGOALS))" = "" ]; then \
+		echo "❌ Usage: make roll <deployment-name>"; \
 		exit 1; \
 	fi; \
-	DEPLOY=$(word 2, $(MAKECMDGOALS)); \
-	echo "🔄 Restarting $$DEPLOY in namespace dev"; \
-	kubectl rollout restart deployment/$$DEPLOY -n dev; \
-	echo "✅ Rollout done for $$DEPLOY"
+	DEPLOY=$(word 2,$(MAKECMDGOALS)); \
+	echo "🔄 Restarting deployment '$$DEPLOY' in namespace observability"; \
+	kubectl rollout restart deployment/$$DEPLOY -n observability; \
+	echo "✅ Rollout done for '$$DEPLOY'"
 
-# Prevent treating arguments as targets
+# Prevent Make from treating the deployment name as a separate target
 %:
 	@:
