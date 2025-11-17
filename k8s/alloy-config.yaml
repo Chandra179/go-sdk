@@ -17,19 +17,10 @@ data:
       }
     }
 
-    // Read pod logs with better error handling
+    // Read pod logs
     loki.source.kubernetes "pods" {
       targets    = discovery.kubernetes.pods.targets
       forward_to = [loki.process.add_labels.receiver]
-      
-      // Reduce warnings during pod lifecycle changes
-      client {
-        backoff {
-          min_period = "500ms"
-          max_period = "5m"
-          max_retries = 3
-        }
-      }
     }
 
     // Process logs and extract JSON fields
