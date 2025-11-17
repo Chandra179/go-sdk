@@ -11,6 +11,7 @@ data:
       # Loki for logs
       - name: Loki
         type: loki
+        uid: loki-ds
         access: proxy
         url: http://loki.observability.svc.cluster.local:3100
         isDefault: false
@@ -18,24 +19,20 @@ data:
         jsonData:
           maxLines: 1000
           derivedFields:
-            # Field with internal link pointing to data source in Grafana.
-            # datasourceUid value can be anything, but it should be unique across all defined data source uids.
-            - datasourceUid: EbPG8fYoz
+            - datasourceUid: jaeger-ds
               matcherRegex: "traceID=(\\w+)"
               name: TraceID
-              # url will be interpreted as query for the datasource
               url: '$${__value.raw}'
-              # optional for URL Label to set a custom display label for the link.
               urlDisplayLabel: 'View Trace'
 
-            # Field with external link.
             - matcherRegex: "traceID=(\\w+)"
               name: TraceID
-          url: 'http://jaeger.observability.svc.cluster.local:16686/trace/$${__value.raw}'
+              url: 'http://jaeger.observability.svc.cluster.local:16686/trace/$${__value.raw}'
 
       # Prometheus for metrics
       - name: Prometheus
         type: prometheus
+        uid: prom
         access: proxy
         url: http://prometheus.observability.svc.cluster.local:9090
         isDefault: true
@@ -44,16 +41,14 @@ data:
       # Jaeger for traces
       - name: Jaeger
         type: jaeger
+        uid: jaeger-ds
         access: proxy
-        uid: EbPG8fYoz
         url: http://jaeger.observability.svc.cluster.local:16686
         isDefault: false
         editable: true
         jsonData:
           tracesToLogsV2:
-            # Field with an internal link pointing to a logs data source in Grafana.
-            # datasourceUid value must match the uid value of the logs data source.
-            datasourceUid: 'EbPG8fYoz'
+            datasourceUid: 'loki-ds'
             spanStartTimeShift: '1h'
             spanEndTimeShift: '-1h'
             tags: ['job', 'instance', 'pod', 'namespace']
@@ -61,14 +56,18 @@ data:
             filterBySpanID: false
             customQuery: true
             query: 'method="$${__span.tags.method}"'
+
           tracesToMetrics:
             datasourceUid: 'prom'
             spanStartTimeShift: '1h'
             spanEndTimeShift: '-1h'
-            tags: [{ key: 'service.name', value: 'service' }, { key: 'job' }]
+            tags:
+              - { key: 'service.name', value: 'service' }
+              - { key: 'job' }
             queries:
               - name: 'Sample query'
                 query: 'sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m]))'
+
           nodeGraph:
             enabled: true
           traceQuery:
