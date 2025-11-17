@@ -105,15 +105,15 @@ EOF
 fi
 
 #############################################
-# PHASE 4: APPLY OBSERVABILITY STACK
+# PHASE 4: APPLY OBSERVABILITY STACK ONLY
 #############################################
 echo ""
 echo "📊 Phase 4: Deploying observability stack..."
 
 # Apply configs first
-kubectl apply -f alloy-config.yaml
 kubectl apply -f prometheus-config.yaml
 kubectl apply -f grafana-config.yaml
+kubectl apply -f alloy-config.yaml
 
 # Apply deployments
 kubectl apply -f loki-deployment.yaml
@@ -122,67 +122,68 @@ kubectl apply -f grafana-deployment.yaml
 kubectl apply -f jaeger-deployment.yaml
 kubectl apply -f alloy-deployment.yaml
 
+# App
+kubectl apply -f app.yaml
+
 log_info "Waiting for observability pods to be ready..."
 kubectl wait --for=condition=ready pod -l app=prometheus -n observability --timeout=120s || log_warn "Prometheus not ready yet"
 kubectl wait --for=condition=ready pod -l app=grafana -n observability --timeout=120s || log_warn "Grafana not ready yet"
 kubectl wait --for=condition=ready pod -l app=loki -n observability --timeout=120s || log_warn "Loki not ready yet"
 
 #############################################
-# PHASE 5: REGISTER ARGOCD APPLICATION (EARLY)
+# PHASE 5: APPLY INGRESS (BEFORE APP DEPLOYMENT)
 #############################################
 echo ""
-echo "🎯 Phase 5: Registering ArgoCD application..."
-kubectl apply -f argocd.yaml
-
-log_info "Waiting for ArgoCD to sync application..."
-sleep 20
-
-# Wait for app pods to be ready (deployed by ArgoCD)
-log_info "Waiting for app pods to be ready..."
-kubectl wait --for=condition=ready pod -l app=my-app -n "$NAMESPACE" --timeout=120s || log_warn "App pods not ready yet"
-
-# Critical: Wait for services to have endpoints
-log_info "Waiting for service endpoints to be ready..."
-sleep 15
-
-#############################################
-# PHASE 6: APPLY INGRESS
-#############################################
-echo ""
-echo "🌐 Phase 6: Configuring ingress..."
+echo "🌐 Phase 5: Configuring ingress..."
 
 kubectl apply -f ingress.yaml
 
 log_info "Ingress rules applied"
 
 # Give ingress time to configure routes
-log_info "Waiting for ingress to configure routes (20s)..."
-sleep 20
+log_info "Waiting for ingress to configure routes (15s)..."
+sleep 15
 
 #############################################
-# PHASE 7: ROLLOUT RESTART (STRATEGIC)
-#############################################
-echo ""
-echo "🔄 Phase 7: Rolling out updates..."
-
-# Only restart observability deployments
-# DO NOT restart app (managed by ArgoCD) or ingress-nginx or argocd
-log_info "Restarting observability deployments..."
-kubectl rollout restart deployment -n observability 2>/dev/null || log_warn "No deployments in observability"
-
-# Wait for rollouts to complete
-log_info "Waiting for rollouts to complete..."
-kubectl rollout status deployment --all -n observability --timeout=120s || log_warn "Rollout status check timed out"
-
-# Critical wait after restart
-log_info "Waiting for pods to stabilize after restart (20s)..."
-sleep 20
-
-#############################################
-# PHASE 8: START MINIKUBE TUNNEL
+# PHASE 6: REGISTER ARGOCD APPLICATION
 #############################################
 echo ""
-echo "🔗 Phase 8: Starting minikube tunnel..."
+echo "🎯 Phase 6: Registering ArgoCD application..."
+
+# Delete existing ArgoCD app if it exists to ensure clean state
+kubectl delete application my-app -n argocd --ignore-not-found=true
+sleep 5
+
+# Apply ArgoCD application
+kubectl apply -f argocd.yaml
+
+log_info "Waiting for ArgoCD to sync and deploy application..."
+sleep 30
+
+# Wait for app pods to be ready (deployed by ArgoCD)
+log_info "Waiting for app pods to be ready..."
+kubectl wait --for=condition=ready pod -l app=my-app -n "$NAMESPACE" --timeout=180s || log_warn "App pods not ready yet"
+
+# Verify replica count
+REPLICA_COUNT=$(kubectl get deployment my-app -n "$NAMESPACE" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+READY_REPLICAS=$(kubectl get deployment my-app -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+
+echo ""
+echo "📊 Deployment Status:"
+echo "   Expected replicas: 3"
+echo "   Current replicas: $REPLICA_COUNT"
+echo "   Ready replicas: $READY_REPLICAS"
+
+if [ "$REPLICA_COUNT" != "3" ]; then
+  log_warn "Replica count mismatch! Expected 3, got $REPLICA_COUNT"
+  log_warn "ArgoCD may still be syncing..."
+fi
+
+#############################################
+# PHASE 7: START MINIKUBE TUNNEL
+#############################################
+echo ""
+echo "🔗 Phase 7: Starting minikube tunnel..."
 
 # Check if tunnel is already running
 if pgrep -f "minikube tunnel" > /dev/null; then
@@ -199,14 +200,14 @@ else
   
   # Wait for tunnel to establish
   log_info "Waiting for tunnel to establish (15s)..."
-  sleep 15
+  sleep 10
 fi
 
 #############################################
-# PHASE 9: VERIFY HOSTS FILE
+# PHASE 8: VERIFY HOSTS FILE
 #############################################
 echo ""
-echo "📝 Phase 9: Verifying /etc/hosts..."
+echo "📝 Phase 8: Verifying /etc/hosts..."
 MINIKUBE_IP=$(minikube ip)
 echo "   Minikube IP: $MINIKUBE_IP"
 
@@ -236,10 +237,10 @@ else
 fi
 
 #############################################
-# PHASE 10: PORT FORWARDING
+# PHASE 9: PORT FORWARDING
 #############################################
 echo ""
-echo "🔌 Phase 10: Setting up port-forwards..."
+echo "🔌 Phase 9: Setting up port-forwards..."
 
 # Kill existing port-forwards
 pkill -f "kubectl port-forward.*$NAMESPACE.*8080" 2>/dev/null || true
@@ -270,14 +271,14 @@ else
 fi
 
 #############################################
-# PHASE 11: FINAL HEALTH CHECKS
+# PHASE 10: FINAL HEALTH CHECKS
 #############################################
 echo ""
-echo "🏥 Phase 11: Running final health checks..."
+echo "🏥 Phase 10: Running final health checks..."
 
 # Wait for everything to be truly ready
-log_info "Waiting for all services to be fully ready (30s)..."
-sleep 30
+log_info "Waiting for all services to be fully ready (20s)..."
+sleep 20
 
 # Check pod status
 echo ""
@@ -285,13 +286,18 @@ echo "📊 Pod Status:"
 kubectl get pods -n "$NAMESPACE" --no-headers | awk '{print "   " $1 ": " $3}'
 kubectl get pods -n observability --no-headers | awk '{print "   " $1 ": " $3}'
 
+# Check ArgoCD application status
+echo ""
+echo "🎯 ArgoCD Application Status:"
+kubectl get application my-app -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null && echo "" || echo "   Not available"
+
 # Check ingress status
 echo ""
 echo "🌐 Ingress Status:"
 kubectl get ingress -A -o wide | tail -n +2 | awk '{print "   " $2 " (" $1 "): " $4}' || echo "   No ingress found"
 
 #############################################
-# PHASE 12: GET ARGOCD PASSWORD
+# PHASE 11: GET ARGOCD PASSWORD
 #############################################
 echo ""
 echo "🔑 ArgoCD Credentials:"
@@ -306,10 +312,10 @@ fi
 echo ""
 
 #############################################
-# PHASE 13: OPEN BROWSERS (WITH CONFIRMATION)
+# PHASE 12: OPEN BROWSERS (WITH CONFIRMATION)
 #############################################
 echo ""
-echo "🌐 Phase 13: Opening services in browser..."
+echo "🌐 Phase 12: Opening services in browser..."
 echo ""
 read -p "Open services in browser now? (y/n) " -n 1 -r
 echo
@@ -350,13 +356,18 @@ echo "   • Alloy:      http://alloy.local"
 echo "   • App:        http://app.local"
 echo "   • ArgoCD:     https://localhost:8081 (admin/$ARGOCD_PASSWORD)"
 echo ""
+echo "🎯 ArgoCD is managing your app deployment!"
+echo "   • View sync status: kubectl get application my-app -n argocd"
+echo ""
 echo "🔍 Quick Status Commands:"
 echo "   kubectl get pods -n $NAMESPACE"
-echo "   kubectl get pods -n observability"
-echo "   kubectl get ingress -A"
+echo "   kubectl get deployment my-app -n $NAMESPACE"
+echo "   kubectl get application my-app -n argocd"
 echo "   kubectl logs -n $NAMESPACE -l app=my-app"
 echo ""
-echo "🎯 ArgoCD manages your app deployment!"
-echo "   View sync status: kubectl get application -n argocd"
-echo "   Manual sync: kubectl patch app my-app -n argocd -p '{\"spec\":{\"syncPolicy\":null}}' --type merge"
+echo "⚠️  IMPORTANT:"
+echo "   If you see replica count > 3, run:"
+echo "   kubectl delete application my-app -n argocd"
+echo "   kubectl delete deployment my-app -n dev"
+echo "   Then re-run this script"
 echo ""

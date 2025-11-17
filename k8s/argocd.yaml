@@ -9,9 +9,6 @@ spec:
     repoURL: https://github.com/Chandra179/go-sdk.git
     targetRevision: HEAD
     path: k8s
-    # Exclude app.yaml from ArgoCD sync - manage it manually
-    directory:
-      exclude: 'app.yaml'
   destination:
     server: https://kubernetes.default.svc
     namespace: dev
