@@ -33,9 +33,19 @@ type ObservabilityConfig struct {
 	Environment  string
 }
 
+type PostgresConfig struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	DBName   string
+	SSLMode  string
+}
+
 type Config struct {
 	AppEnv        string
 	Redis         RedisConfig
+	Postgres      PostgresConfig
 	OAuth2        Oauth2Config
 	Observability ObservabilityConfig
 }
@@ -48,15 +58,14 @@ func Load() (*Config, error) {
 		log.Print("skip error godot load env")
 	}
 
-	// App
 	appEnv := mustEnv("APP_ENV", &errs)
-
-	// Redis
 	host := mustEnv("REDIS_HOST", &errs)
 	port := mustEnv("REDIS_PORT", &errs)
 	password := getEnvOrDefault("REDIS_PASSWORD", "")
 
+	// ==========
 	// OAuth2
+	// ==========
 	googleClientID := mustEnv("GOOGLE_CLIENT_ID", &errs)
 	googleClientSecret := mustEnv("GOOGLE_CLIENT_SECRET", &errs)
 	googleRedirectUrl := mustEnv("GOOGLE_REDIRECT_URL", &errs)
@@ -64,21 +73,30 @@ func Load() (*Config, error) {
 	githubClientSecret := mustEnv("GITHUB_CLIENT_SECRET", &errs)
 	githubRedirectUrl := mustEnv("GITHUB_REDIRECT_URL", &errs)
 	jwtSecret := mustEnv("JWT_SECRET", &errs)
-
-	// Parse durations, defaulting to some reasonable value if missing
 	jwtExpirationStr := mustEnv("JWT_EXPIRATION", &errs)
 	jwtExpiration, err := time.ParseDuration(jwtExpirationStr)
 	if err != nil {
 		errs = append(errs, errors.New("invalid duration for JWT_EXPIRATION: "+jwtExpirationStr))
 	}
-
 	stateTimeoutStr := mustEnv("STATE_TIMEOUT", &errs)
 	stateTimeout, err := time.ParseDuration(stateTimeoutStr)
 	if err != nil {
 		errs = append(errs, errors.New("invalid duration for STATE_TIMEOUT: "+stateTimeoutStr))
 	}
 
-	// Observability (optional with defaults)
+	// ==========
+	// Postgres
+	// ==========
+	pgHost := mustEnv("POSTGRES_HOST", &errs)
+	pgPort := mustEnv("POSTGRES_PORT", &errs)
+	pgUser := mustEnv("POSTGRES_USER", &errs)
+	pgPassword := mustEnv("POSTGRES_PASSWORD", &errs)
+	pgDB := mustEnv("POSTGRES_DB", &errs)
+	pgSSL := getEnvOrDefault("POSTGRES_SSLMODE", "disable") // default disable
+
+	// ==========
+	// Observability
+	// ==========
 	otlpEndpoint := getEnvOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "alloy.observability.svc.cluster.local:4317")
 	serviceName := getEnvOrDefault("OTEL_SERVICE_NAME", "gosdk-app")
 	environment := getEnvOrDefault("OTEL_RESOURCE_ATTRIBUTES", appEnv)
@@ -109,6 +127,14 @@ func Load() (*Config, error) {
 			OTLPEndpoint: otlpEndpoint,
 			ServiceName:  serviceName,
 			Environment:  environment,
+		},
+		Postgres: PostgresConfig{
+			Host:     pgHost,
+			Port:     pgPort,
+			User:     pgUser,
+			Password: pgPassword,
+			DBName:   pgDB,
+			SSLMode:  pgSSL,
 		},
 	}, nil
 }

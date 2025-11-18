@@ -4,8 +4,6 @@ import (
 	"gosdk/cfg"
 	"gosdk/pkg/logger"
 	"log"
-
-	_ "gosdk/api" // swagger docs
 )
 
 func main() {

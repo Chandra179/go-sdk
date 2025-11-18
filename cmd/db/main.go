@@ -6,16 +6,44 @@ import (
 	"fmt"
 	"log"
 
+	"gosdk/cfg"
 	"gosdk/pkg/db"
 )
 
 func main() {
-	pgDSN := "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
+	// ============
+	// Load config
+	// ============
+	config, errCfg := cfg.Load()
+	if errCfg != nil {
+		log.Fatal(errCfg)
+	}
+
+	// ============
+	// Build Postgres DSN from config
+	// ============
+	pg := config.Postgres
+	pgDSN := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		pg.User,
+		pg.Password,
+		pg.Host,
+		pg.Port,
+		pg.DBName,
+		pg.SSLMode,
+	)
+
+	// ============
+	// Init DB client
+	// ============
 	client, err := db.NewSQLClient("postgres", pgDSN)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// ============
+	// Example transaction
+	// ============
 	err = client.WithTransaction(context.Background(), sql.LevelSerializable,
 		func(ctx context.Context, tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, "INSERT INTO users(id, name) VALUES($1, $2)", 1, "Alice")
@@ -29,15 +57,4 @@ func main() {
 	} else {
 		fmt.Println("Transaction committed successfully")
 	}
-
-	mariaDSN := "user:pass@tcp(localhost:3306)/mydb?charset=utf8mb4&parseTime=True"
-	mariaClient, err := db.NewSQLClient("mysql", mariaDSN)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	mariaClient.WithTransaction(context.Background(), sql.LevelSerializable, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "INSERT INTO users(id, name) VALUES(?, ?)", 1, "Alice")
-		return err
-	})
 }
