@@ -32,6 +32,6 @@ go.work.sum
 # .vscode/
 
 vendor/
-/api/proto/gen/..
-./api/proto/gen/..
-api/proto/gen/..
+/api/proto/gen/
+./api/proto/gen/
+api/proto/gen/
