@@ -40,3 +40,7 @@ This project is a Go template demonstrating reusable packages and runnable examp
      go run ./cmd/otel
      ```  
    - Each service uses reusable logic from `pkg/`.
+
+## Proto
+Before generating .proto files, install protoc and the required Go plugins. see
+api/proto/Makefile for the installation
