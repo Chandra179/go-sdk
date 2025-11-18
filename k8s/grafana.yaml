@@ -25,13 +25,6 @@ data:
               url: '$${__value.raw}'
               urlDisplayLabel: 'View Trace'
 
-            # Match span_id in JSON logs
-            - datasourceUid: jaeger-ds
-              matcherRegex: '"span_id":"(\w+)"'
-              name: Span ID
-              url: 'http://jaeger.observability.svc.cluster.local:16686/trace/$${__value.raw}'
-              urlDisplayLabel: 'View Span'
-
       # Prometheus for metrics
       - name: Prometheus
         type: prometheus
@@ -44,7 +37,7 @@ data:
       # Jaeger for traces
       - name: Jaeger
         type: jaeger
-        uid: jaeger-ds
+        uid: jaeger-ds  
         access: proxy
         url: http://jaeger.observability.svc.cluster.local:16686
         isDefault: false
@@ -70,7 +63,6 @@ data:
             queries:
               - name: 'Sample query'
                 query: 'sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m]))'
-
           nodeGraph:
             enabled: true
           traceQuery:
@@ -121,6 +113,8 @@ spec:
               value: admin
             - name: GF_PATHS_PROVISIONING
               value: /etc/grafana/provisioning
+            - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
+              value: grafana-metricsdrilldown-app
           ports:
             - containerPort: 3000
               name: http
