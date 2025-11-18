@@ -21,12 +21,12 @@ data:
             - datasourceUid: jaeger-ds
               matcherRegex: '"trace_id":"([a-f0-9]+)"'
               name: TraceID
-              url: '${__value.raw}'
+              url: '$${__value.raw}'
               urlDisplayLabel: 'View Trace in Jaeger'
             - datasourceUid: jaeger-ds
               matcherRegex: '"span_id":"([a-f0-9]+)"'
               name: SpanID
-              url: '${__value.raw}'
+              url: '$${__value.raw}'
               urlDisplayLabel: 'View Span in Jaeger'
 
       # Prometheus for metrics
@@ -55,7 +55,7 @@ data:
             filterByTraceID: true
             filterBySpanID: true
             customQuery: true
-            query: '{namespace="dev", app="my-app"} | json | trace_id="${__span.traceId}"'
+            query: '{namespace="dev", app="my-app"} | json | trace_id="$${__span.traceId}"'
             tags:
               - key: 'service.name'
                 value: 'service'
@@ -126,8 +126,6 @@ spec:
               value: admin
             - name: GF_SECURITY_ADMIN_PASSWORD
               value: admin
-            - name: GF_PATHS_PROVISIONING
-              value: /etc/grafana/provisioning
             - name: GF_FEATURE_TOGGLES_ENABLE
               value: traceToMetrics
           ports:
@@ -137,7 +135,8 @@ spec:
             - name: grafana-storage
               mountPath: /var/lib/grafana
             - name: grafana-datasources
-              mountPath: /etc/grafana/provisioning/datasources
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+              subPath: datasources.yaml
           resources:
             requests:
               memory: "256Mi"
