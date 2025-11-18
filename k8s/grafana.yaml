@@ -4,9 +4,8 @@ metadata:
   name: grafana-datasources
   namespace: observability
 data:
-  datasource.yaml: |
+  datasources.yaml: |
     apiVersion: 1
-
     datasources:
       # Loki for logs
       - name: Loki
@@ -52,7 +51,6 @@ data:
             filterBySpanID: false
             customQuery: true
             query: '{job="$${__span.tags.job}"} |~ "$${__span.traceId}"'
-
           tracesToMetrics:
             datasourceUid: 'prom'
             spanStartTimeShift: '1h'
@@ -113,8 +111,6 @@ spec:
               value: admin
             - name: GF_PATHS_PROVISIONING
               value: /etc/grafana/provisioning
-            - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
-              value: grafana-metricsdrilldown-app
           ports:
             - containerPort: 3000
               name: http
