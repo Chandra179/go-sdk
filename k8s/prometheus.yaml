@@ -62,6 +62,9 @@ spec:
   selector:
     matchLabels:
       app: prometheus
+  # CRITICAL: Change strategy to Recreate to avoid lock file issues
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
