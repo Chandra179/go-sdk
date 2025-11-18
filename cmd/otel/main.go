@@ -4,18 +4,10 @@ import (
 	"context"
 	"fmt"
 	"gosdk/cfg"
-	"gosdk/pkg/cache"
-	"gosdk/pkg/logger"
-	"gosdk/pkg/oauth2"
 	"log"
 	"time"
 
-	_ "gosdk/api" // swagger docs
-
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -39,14 +31,9 @@ func main() {
 	}
 
 	// ============
-	// logger
-	// ============
-	zlogger := logger.NewZeroLog(config.AppEnv)
-
-	// ============
 	// Otel
 	// ============
-	shutdownOtel, err := initOtel(context.Background(), &config.Observability, zlogger)
+	shutdownOtel, err := initOtel(context.Background(), &config.Observability)
 	if err != nil {
 		log.Printf("WARNING: failed to initialize OpenTelemetry: %v", err)
 		log.Printf("Continuing without tracing/metrics...")
@@ -60,63 +47,10 @@ func main() {
 			}
 		}()
 	}
-
-	// ============
-	// Cache
-	// ============
-	redisAddr := config.Redis.Host + ":" + config.Redis.Port
-	_ = cache.NewRedisCache(redisAddr)
-
-	// ============
-	// Oauth2
-	// ============
-	oauth2mgr, err := oauth2.NewManager(&config.OAuth2)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// ============
-	// HTTP
-	// ============
-	r := gin.Default()
-	r.Use(otelgin.Middleware(config.Observability.ServiceName))
-	r.Use(TraceLoggerMiddleware(zlogger))
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	r.GET("/docs", func(c *gin.Context) {
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		html := `<!DOCTYPE html>
-<html>
-<head>
-    <title>API Documentation</title>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
-<body>
-    <script id="api-reference" data-url="/swagger/doc.json"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
-</body>
-</html>`
-		c.String(200, html)
-	})
-
-	auth := r.Group("/auth")
-	{
-		auth.GET("/google", oauth2.GoogleAuthHandler(oauth2mgr))
-		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
-		auth.GET("/github", oauth2.GithubAuthHandler(oauth2mgr))
-		auth.GET("/callback/github", oauth2.GithubCallbackHandler(oauth2mgr))
-	}
-
-	api := r.Group("/api")
-	api.GET("/me", oauth2.MeHandler(oauth2mgr))
-
-	if err := r.Run(":8080"); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
 }
 
 // TraceLoggerMiddleware extracts trace_id and span_id from the request context and attaches it to logger
-func TraceLoggerMiddleware(log logger.Logger) gin.HandlerFunc {
+func TraceLoggerMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		span := trace.SpanFromContext(c.Request.Context())
 		if span.SpanContext().IsValid() {
@@ -127,12 +61,7 @@ func TraceLoggerMiddleware(log logger.Logger) gin.HandlerFunc {
 			c.Set("trace_id", traceID)
 			c.Set("span_id", spanID)
 
-			log.Info("incoming request",
-				logger.Field{Key: "trace_id", Value: traceID},
-				logger.Field{Key: "span_id", Value: spanID},
-				logger.Field{Key: "method", Value: c.Request.Method},
-				logger.Field{Key: "path", Value: c.Request.URL.Path},
-			)
+			log.Print("incoming request")
 		}
 
 		c.Next()
@@ -141,19 +70,13 @@ func TraceLoggerMiddleware(log logger.Logger) gin.HandlerFunc {
 			traceID := span.SpanContext().TraceID().String()
 			spanID := span.SpanContext().SpanID().String()
 
-			log.Info("request completed",
-				logger.Field{Key: "trace_id", Value: traceID},
-				logger.Field{Key: "span_id", Value: spanID},
-				logger.Field{Key: "status", Value: c.Writer.Status()},
-				logger.Field{Key: "method", Value: c.Request.Method},
-				logger.Field{Key: "path", Value: c.Request.URL.Path},
-			)
+			log.Print("request completed, trace_id: " + traceID + " span_id: " + spanID)
 		}
 	}
 }
 
 // initOtel initializes OpenTelemetry tracer and meter with OTLP exporter
-func initOtel(ctx context.Context, config *cfg.ObservabilityConfig, log logger.Logger) (func(context.Context) error, error) {
+func initOtel(ctx context.Context, config *cfg.ObservabilityConfig) (func(context.Context) error, error) {
 	conn, err := grpc.NewClient(
 		config.OTLPEndpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -196,9 +119,7 @@ func initOtel(ctx context.Context, config *cfg.ObservabilityConfig, log logger.L
 	)
 	otel.SetMeterProvider(mp)
 
-	log.Info("OpenTelemetry initialized - sending to OTLP collector",
-		logger.Field{Key: "otlp_endpoint", Value: config.OTLPEndpoint},
-	)
+	log.Print("OpenTelemetry initialized - sending to OTLP collector: " + config.OTLPEndpoint)
 
 	shutdown := func(ctx context.Context) error {
 		var errs []error

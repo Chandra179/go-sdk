@@ -28,27 +28,39 @@ func NewWithWriter(env string, w io.Writer) *ZeroLogger {
 	return &ZeroLogger{zlogger: logger}
 }
 
-// helper to convert our abstraction []Field -> zerolog fields
-func convert(fields []Field) []any {
-	items := make([]any, 0, len(fields)*2)
+// logWithFields applies dynamic fields efficiently using typed methods
+func (l *ZeroLogger) logWithFields(event *zerolog.Event, fields []Field) *zerolog.Event {
 	for _, f := range fields {
-		items = append(items, f.Key, f.Value)
+		switch v := f.Value.(type) {
+		case string:
+			event.Str(f.Key, v)
+		case int:
+			event.Int(f.Key, v)
+		case int64:
+			event.Int64(f.Key, v)
+		case float64:
+			event.Float64(f.Key, v)
+		case bool:
+			event.Bool(f.Key, v)
+		default:
+			event.Interface(f.Key, v) // fallback for complex types
+		}
 	}
-	return items
+	return event
 }
 
 func (l *ZeroLogger) Debug(msg string, fields ...Field) {
-	l.zlogger.Debug().Fields(convert(fields)).Msg(msg)
+	l.logWithFields(l.zlogger.Debug(), fields).Msg(msg)
 }
 
 func (l *ZeroLogger) Info(msg string, fields ...Field) {
-	l.zlogger.Info().Fields(convert(fields)).Msg(msg)
+	l.logWithFields(l.zlogger.Info(), fields).Msg(msg)
 }
 
 func (l *ZeroLogger) Warn(msg string, fields ...Field) {
-	l.zlogger.Warn().Fields(convert(fields)).Msg(msg)
+	l.logWithFields(l.zlogger.Warn(), fields).Msg(msg)
 }
 
 func (l *ZeroLogger) Error(msg string, fields ...Field) {
-	l.zlogger.Error().Fields(convert(fields)).Msg(msg)
+	l.logWithFields(l.zlogger.Error(), fields).Msg(msg)
 }
