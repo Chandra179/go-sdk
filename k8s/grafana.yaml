@@ -19,15 +19,20 @@ data:
           maxLines: 1000
           derivedFields:
             - datasourceUid: jaeger-ds
-              matcherRegex: '"trace_id":"(\w+)"'
-              name: Trace ID
-              url: '$${__value.raw}'
-              urlDisplayLabel: 'View Trace'
+              matcherRegex: '"trace_id":"([a-f0-9]+)"'
+              name: TraceID
+              url: '${__value.raw}'
+              urlDisplayLabel: 'View Trace in Jaeger'
+            - datasourceUid: jaeger-ds
+              matcherRegex: '"span_id":"([a-f0-9]+)"'
+              name: SpanID
+              url: '${__value.raw}'
+              urlDisplayLabel: 'View Span in Jaeger'
 
       # Prometheus for metrics
       - name: Prometheus
         type: prometheus
-        uid: prom
+        uid: prom-ds
         access: proxy
         url: http://prometheus.observability.svc.cluster.local:9090
         isDefault: true
@@ -42,31 +47,43 @@ data:
         isDefault: false
         editable: true
         jsonData:
+          # Trace to Logs configuration
           tracesToLogsV2:
             datasourceUid: 'loki-ds'
-            spanStartTimeShift: '1h'
-            spanEndTimeShift: '-1h'
-            tags: ['job', 'instance', 'pod', 'namespace']
+            spanStartTimeShift: '-1h'
+            spanEndTimeShift: '1h'
             filterByTraceID: true
-            filterBySpanID: false
+            filterBySpanID: true
             customQuery: true
-            query: '{job="$${__span.tags.job}"} |~ "$${__span.traceId}"'
-          tracesToMetrics:
-            datasourceUid: 'prom'
-            spanStartTimeShift: '1h'
-            spanEndTimeShift: '-1h'
+            query: '{namespace="dev", app="my-app"} | json | trace_id="${__span.traceId}"'
             tags:
-              - { key: 'service.name', value: 'service' }
-              - { key: 'job' }
+              - key: 'service.name'
+                value: 'service'
+          
+          # Trace to Metrics configuration  
+          tracesToMetrics:
+            datasourceUid: 'prom-ds'
+            spanStartTimeShift: '-1h'
+            spanEndTimeShift: '1h'
+            tags:
+              - key: 'service.name'
+                value: 'service'
+              - key: 'job'
             queries:
-              - name: 'Sample query'
-                query: 'sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m]))'
+              - name: 'Request rate'
+                query: 'sum(rate(tempo_spanmetrics_calls_total{$${__tags}}[5m]))'
+          
+          # Node graph configuration
           nodeGraph:
             enabled: true
+          
+          # Trace query configuration
           traceQuery:
             timeShiftEnabled: true
-            spanStartTimeShift: '1h'
-            spanEndTimeShift: '-1h'
+            spanStartTimeShift: '-1h'
+            spanEndTimeShift: '1h'
+          
+          # Span bar configuration
           spanBar:
             type: 'None'
 
@@ -111,6 +128,8 @@ spec:
               value: admin
             - name: GF_PATHS_PROVISIONING
               value: /etc/grafana/provisioning
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: traceToMetrics
           ports:
             - containerPort: 3000
               name: http
