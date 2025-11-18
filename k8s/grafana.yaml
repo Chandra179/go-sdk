@@ -7,50 +7,85 @@ data:
   datasources.yaml: |
     apiVersion: 1
     datasources:
-      # Prometheus for metrics
-      - name: Prometheus
-        type: prometheus
-        uid: prometheus
-        access: proxy
-        url: http://prometheus.observability.svc.cluster.local:9090
-        isDefault: true
-        editable: false
-
       # Loki for logs
       - name: Loki
         type: loki
-        uid: loki
+        uid: loki-ds
         access: proxy
         url: http://loki.observability.svc.cluster.local:3100
         isDefault: false
-        editable: false
+        editable: true
         jsonData:
           maxLines: 1000
           derivedFields:
-            - datasourceUid: jaeger
+            - datasourceUid: jaeger-ds
               matcherRegex: '"trace_id":"([a-f0-9]+)"'
               name: TraceID
               url: '$${__value.raw}'
+              urlDisplayLabel: 'View Trace in Jaeger'
+            - datasourceUid: jaeger-ds
+              matcherRegex: '"span_id":"([a-f0-9]+)"'
+              name: SpanID
+              url: '$${__value.raw}'
+              urlDisplayLabel: 'View Span in Jaeger'
+
+      # Prometheus for metrics
+      - name: Prometheus
+        type: prometheus
+        uid: prom-ds
+        access: proxy
+        url: http://prometheus.observability.svc.cluster.local:9090
+        isDefault: true
+        editable: true
 
       # Jaeger for traces
       - name: Jaeger
         type: jaeger
-        uid: jaeger
+        uid: jaeger-ds  
         access: proxy
         url: http://jaeger.observability.svc.cluster.local:16686
         isDefault: false
-        editable: false
+        editable: true
         jsonData:
+          # Trace to Logs configuration
           tracesToLogsV2:
-            datasourceUid: loki
+            datasourceUid: 'loki-ds'
             spanStartTimeShift: '-1h'
             spanEndTimeShift: '1h'
             filterByTraceID: true
-            filterBySpanID: false
+            filterBySpanID: true
+            customQuery: true
+            query: '{namespace="dev", app="my-app"} | json | trace_id="$${__span.traceId}"'
+            tags:
+              - key: 'service.name'
+                value: 'service'
+          
+          # Trace to Metrics configuration  
           tracesToMetrics:
-            datasourceUid: prometheus
+            datasourceUid: 'prom-ds'
             spanStartTimeShift: '-1h'
             spanEndTimeShift: '1h'
+            tags:
+              - key: 'service.name'
+                value: 'service'
+              - key: 'job'
+            queries:
+              - name: 'Request rate'
+                query: 'sum(rate(tempo_spanmetrics_calls_total{$${__tags}}[5m]))'
+          
+          # Node graph configuration
+          nodeGraph:
+            enabled: true
+          
+          # Trace query configuration
+          traceQuery:
+            timeShiftEnabled: true
+            spanStartTimeShift: '-1h'
+            spanEndTimeShift: '1h'
+          
+          # Span bar configuration
+          spanBar:
+            type: 'None'
 
 ---
 
@@ -83,9 +118,6 @@ spec:
       labels:
         app: grafana
     spec:
-      securityContext:
-        fsGroup: 472
-        runAsUser: 472
       containers:
         - name: grafana
           image: grafana/grafana:latest
@@ -94,8 +126,8 @@ spec:
               value: admin
             - name: GF_SECURITY_ADMIN_PASSWORD
               value: admin
-            - name: GF_INSTALL_PLUGINS
-              value: ""
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: traceToMetrics
           ports:
             - containerPort: 3000
               name: http
@@ -112,18 +144,6 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
-          livenessProbe:
-            httpGet:
-              path: /api/health
-              port: 3000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /api/health
-              port: 3000
-            initialDelaySeconds: 30
-            periodSeconds: 10
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
