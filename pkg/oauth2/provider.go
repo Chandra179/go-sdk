@@ -5,12 +5,11 @@ import (
 	"time"
 )
 
-// Provider defines the interface for OAuth2 providers
+// Provider defines the base interface for authentication providers
 type Provider interface {
-	GetAuthURL(state, codeChallenge string) string
-	Exchange(ctx context.Context, code string) (*TokenResponse, error)
-	GetUserInfo(ctx context.Context, accessToken string) (*UserInfo, error)
 	GetName() string
+	GetAuthURL(state string, nonce string) string
+	HandleCallback(ctx context.Context, code string, state string, nonce string) (*UserInfo, *TokenSet, error)
 }
 
 // UserInfo represents unified user information across providers
@@ -24,11 +23,11 @@ type UserInfo struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
-// TokenResponse represents OAuth2 token response
-type TokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	IDToken      string `json:"id_token,omitempty"`
+// TokenSet represents the complete token response from providers
+type TokenSet struct {
+	AccessToken  string    `json:"access_token"`
+	TokenType    string    `json:"token_type"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	IDToken      string    `json:"id_token,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }

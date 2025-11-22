@@ -7,15 +7,14 @@ import (
 )
 
 var (
-	ErrStateNotFound    = errors.New("state not found")
-	ErrVerifierNotFound = errors.New("verifier not found")
-	ErrStateExpired     = errors.New("state expired")
+	ErrStateNotFound = errors.New("state not found")
+	ErrStateExpired  = errors.New("state expired")
 )
 
-// Storage interface for state and code verifier management
-type Storage interface {
-	SaveState(state string, verifier string, expiresAt time.Time) error
-	GetVerifier(state string) (string, error)
+// StateStorage interface for state and nonce management
+type StateStorage interface {
+	SaveState(state string, nonce string, expiresAt time.Time) error
+	ValidateState(state string, nonce string) error
 	DeleteState(state string) error
 	Cleanup()
 }
@@ -29,7 +28,7 @@ type InMemoryStorage struct {
 }
 
 type stateData struct {
-	verifier  string
+	nonce     string
 	expiresAt time.Time
 }
 
@@ -42,30 +41,34 @@ func NewInMemoryStorage() *InMemoryStorage {
 	return s
 }
 
-func (s *InMemoryStorage) SaveState(state string, verifier string, expiresAt time.Time) error {
+func (s *InMemoryStorage) SaveState(state string, nonce string, expiresAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.data[state] = &stateData{
-		verifier:  verifier,
+		nonce:     nonce,
 		expiresAt: expiresAt,
 	}
 	return nil
 }
 
-func (s *InMemoryStorage) GetVerifier(state string) (string, error) {
+func (s *InMemoryStorage) ValidateState(state string, nonce string) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	data, exists := s.data[state]
 	if !exists {
-		return "", ErrStateNotFound
+		return ErrStateNotFound
 	}
 
 	if time.Now().After(data.expiresAt) {
-		return "", ErrStateExpired
+		return ErrStateExpired
 	}
 
-	return data.verifier, nil
+	if data.nonce != nonce {
+		return errors.New("nonce mismatch")
+	}
+
+	return nil
 }
 
 func (s *InMemoryStorage) DeleteState(state string) error {
@@ -105,4 +108,21 @@ func (s *InMemoryStorage) removeExpired() {
 			delete(s.data, state)
 		}
 	}
+}
+
+// GetNonce retrieves the nonce for a given state (helper method)
+func (s *InMemoryStorage) GetNonce(state string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	data, exists := s.data[state]
+	if !exists {
+		return "", ErrStateNotFound
+	}
+
+	if time.Now().After(data.expiresAt) {
+		return "", ErrStateExpired
+	}
+
+	return data.nonce, nil
 }

@@ -3,6 +3,7 @@ module gosdk
 go 1.25.0
 
 require (
+	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.16.0
@@ -17,6 +18,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.38.0
 	go.opentelemetry.io/otel/sdk/metric v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
+	golang.org/x/oauth2 v0.33.0
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.10
 )
@@ -33,6 +35,7 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/gabriel-vasile/mimetype v1.4.10 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect

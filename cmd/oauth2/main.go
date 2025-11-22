@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"gosdk/cfg"
 	"gosdk/pkg/oauth2"
 	"log"
@@ -20,7 +21,7 @@ func main() {
 	// ============
 	// Oauth2
 	// ============
-	oauth2mgr, err := oauth2.NewManager(&config.OAuth2)
+	oauth2mgr, err := oauth2.NewManager(context.Background(), &config.OAuth2)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -37,8 +38,13 @@ func main() {
 		auth.GET("/callback/github", oauth2.GithubCallbackHandler(oauth2mgr))
 	}
 
-	api := r.Group("/api")
-	api.GET("/me", oauth2.MeHandler(oauth2mgr))
+	protected := r.Group("/auth")
+	protected.Use(oauth2.AuthMiddleware(oauth2mgr))
+	{
+		protected.GET("/me", oauth2.MeHandler(oauth2mgr))
+		protected.GET("/refresh", oauth2.RefreshTokenHandler(oauth2mgr))
+		protected.GET("/logout", oauth2.LogoutHandler(oauth2mgr))
+	}
 
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
