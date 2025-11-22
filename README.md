@@ -22,6 +22,8 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │   │   └── main.go
 │   ├── myapp/                         # Complete application using all packages
 │   │   └── main.go
+│   ├── passkey/                       # Passkey webauthn examples
+│   │   └── main.go
 │   └── proto/                         # gRPC server/client examples
 │       └── main.go
 ├── pkg/                               # Reusable library packages

@@ -16,7 +16,5 @@ endif
 ins:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-	@echo ""
-	@echo "✔ Installed protoc plugins to: $$(go env GOPATH)/bin"
-	@echo "✔ Make sure this is in your PATH:"
-	@echo "    export PATH=\"\$$PATH:$$(go env GOPATH)/bin\""
+	sudo apt install -y protobuf-compiler
+	export PATH="$PATH:/home/jukebox/go/bin"
