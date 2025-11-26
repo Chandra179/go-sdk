@@ -13,8 +13,8 @@ func main() {
 
 	config := passkey.Config{
 		RPDisplayName: "My App",
-		RPID:          "437268b764af.ngrok-free.app",
-		RPOrigins:     []string{"https://437268b764af.ngrok-free.app"},
+		RPID:          "c16eff6aa4da.ngrok-free.app",
+		RPOrigins:     []string{"https://c16eff6aa4da.ngrok-free.app"},
 	}
 
 	handler, err := passkey.NewPasskeyHandler(config, storage)
