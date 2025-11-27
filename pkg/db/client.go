@@ -8,6 +8,16 @@ import (
 
 type TxFunc func(ctx context.Context, tx *sql.Tx) error
 
+// SQLExecutor defines the interface for database operations
+// This allows for easy mocking in unit tests
+type SQLExecutor interface {
+	DB() *sql.DB
+	WithTransaction(ctx context.Context, isolation sql.IsolationLevel, fn TxFunc) error
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 type SQLClient struct {
 	db *sql.DB
 }
