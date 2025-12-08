@@ -15,14 +15,6 @@ type MockSQLExecutor struct {
 	mock.Mock
 }
 
-func (m *MockSQLExecutor) DB() *sql.DB {
-	args := m.Called()
-	if args.Get(0) == nil {
-		return nil
-	}
-	return args.Get(0).(*sql.DB)
-}
-
 func (m *MockSQLExecutor) WithTransaction(ctx context.Context, isolation sql.IsolationLevel, fn TxFunc) error {
 	args := m.Called(ctx, isolation, fn)
 	return args.Error(0)

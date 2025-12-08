@@ -11,7 +11,6 @@ type TxFunc func(ctx context.Context, tx *sql.Tx) error
 // SQLExecutor defines the interface for database operations
 // This allows for easy mocking in unit tests
 type SQLExecutor interface {
-	DB() *sql.DB
 	WithTransaction(ctx context.Context, isolation sql.IsolationLevel, fn TxFunc) error
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
@@ -31,10 +30,6 @@ func NewSQLClient(driver, dsn string) (*SQLClient, error) {
 		return nil, fmt.Errorf("failed to ping db: %w", err)
 	}
 	return &SQLClient{db: db}, nil
-}
-
-func (c *SQLClient) DB() *sql.DB {
-	return c.db
 }
 
 func (c *SQLClient) WithTransaction(ctx context.Context, isolation sql.IsolationLevel, fn TxFunc) error {

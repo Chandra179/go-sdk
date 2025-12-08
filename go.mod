@@ -3,6 +3,7 @@ module gosdk
 go 1.25.0
 
 require (
+	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/bwmarrin/snowflake v0.3.0
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/gin-gonic/gin v1.11.0
@@ -79,6 +80,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
