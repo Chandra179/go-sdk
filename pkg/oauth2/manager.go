@@ -43,7 +43,6 @@ func NewManager(ctx context.Context, cfg *cfg.Oauth2Config, userResolver UserRes
 			cfg.GoogleClientID,
 			cfg.GoogleClientSecret,
 			cfg.GoogleRedirectUrl,
-			cfg.GoogleLogoutUrl,
 			nil,
 		)
 		if err != nil {

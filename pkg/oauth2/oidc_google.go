@@ -19,7 +19,7 @@ type GoogleOIDCProvider struct {
 }
 
 // NewGoogleOIDCProvider creates a new Google OIDC provider
-func NewGoogleOIDCProvider(ctx context.Context, clientID, clientSecret, redirectURL, logoutURL string, scopes []string) (*GoogleOIDCProvider, error) {
+func NewGoogleOIDCProvider(ctx context.Context, clientID, clientSecret, redirectURL string, scopes []string) (*GoogleOIDCProvider, error) {
 	provider, err := oidc.NewProvider(ctx, "https://accounts.google.com")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC provider: %w", err)
