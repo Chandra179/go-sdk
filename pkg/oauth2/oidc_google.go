@@ -9,16 +9,17 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// GoogleOIDCProvider implements Provider interface using OIDC
+// GoogleOIDCProvider implements Provider interface using OIDC with PKCE
 type GoogleOIDCProvider struct {
 	config       *oauth2.Config
 	provider     *oidc.Provider
 	verifier     *oidc.IDTokenVerifier
+	logoutUrl    string
 	providerName string
 }
 
 // NewGoogleOIDCProvider creates a new Google OIDC provider
-func NewGoogleOIDCProvider(ctx context.Context, clientID, clientSecret, redirectURL string, scopes []string) (*GoogleOIDCProvider, error) {
+func NewGoogleOIDCProvider(ctx context.Context, clientID, clientSecret, redirectURL, logoutURL string, scopes []string) (*GoogleOIDCProvider, error) {
 	provider, err := oidc.NewProvider(ctx, "https://accounts.google.com")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC provider: %w", err)
@@ -52,44 +53,45 @@ func (g *GoogleOIDCProvider) GetName() string {
 	return g.providerName
 }
 
-func (g *GoogleOIDCProvider) GetAuthURL(state string, nonce string) string {
+func (g *GoogleOIDCProvider) GetAuthURL(state string, nonce string, codeChallenge string) string {
 	opts := []oauth2.AuthCodeOption{
 		oauth2.AccessTypeOffline,
 		oauth2.ApprovalForce,
 		oidc.Nonce(nonce),
+		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	}
 	return g.config.AuthCodeURL(state, opts...)
 }
 
-func (g *GoogleOIDCProvider) HandleCallback(ctx context.Context, code string, state string, nonce string) (*UserInfo, *TokenSet, error) {
-	oauth2Token, err := g.config.Exchange(ctx, code)
+func (g *GoogleOIDCProvider) HandleCallback(ctx context.Context, code string, state string,
+	nonce string, codeVerifier string) (*UserInfo, *TokenSet, error) {
+	oauth2Token, err := g.config.Exchange(
+		ctx,
+		code,
+		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to exchange code: %w", err)
 	}
 
-	// Extract ID token
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok {
 		return nil, nil, fmt.Errorf("no id_token in response")
 	}
 
-	// Verify ID token
 	idToken, err := g.verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to verify ID token: %w", err)
 	}
 
-	// Verify nonce
 	if idToken.Nonce != nonce {
 		return nil, nil, fmt.Errorf("nonce mismatch")
 	}
 
-	// Extract claims
 	var claims struct {
-		Email         string `json:"email"`
-		EmailVerified bool   `json:"email_verified"`
-		Name          string `json:"name"`
-		Picture       string `json:"picture"`
+		Email string `json:"email"`
+		Name  string `json:"name"`
 	}
 
 	if err := idToken.Claims(&claims); err != nil {
@@ -97,13 +99,11 @@ func (g *GoogleOIDCProvider) HandleCallback(ctx context.Context, code string, st
 	}
 
 	userInfo := &UserInfo{
-		ID:            idToken.Subject,
-		Email:         claims.Email,
-		EmailVerified: claims.EmailVerified,
-		Name:          claims.Name,
-		Picture:       claims.Picture,
-		Provider:      g.providerName,
-		CreatedAt:     time.Now(),
+		ID:        idToken.Subject,
+		Email:     claims.Email,
+		Name:      claims.Name,
+		Provider:  g.providerName,
+		CreatedAt: time.Now(),
 	}
 
 	tokenSet := &TokenSet{
@@ -140,4 +140,10 @@ func (g *GoogleOIDCProvider) RefreshToken(ctx context.Context, refreshToken stri
 	}
 
 	return tokenSet, nil
+}
+
+// GetEndSessionEndpoint returns Google's logout endpoint
+// Provider might be not provide this, if not we construct it manually
+func (g *GoogleOIDCProvider) GetEndSessionEndpoint() string {
+	return g.logoutUrl
 }

@@ -11,64 +11,63 @@ var (
 	ErrStateExpired  = errors.New("state expired")
 )
 
-// StateStorage interface for state and nonce management
+// StateStorage interface for state, nonce, and PKCE verifier management
 type StateStorage interface {
-	SaveState(state string, nonce string, expiresAt time.Time) error
-	ValidateState(state string, nonce string) error
+	SaveState(state string, nonce string, codeVerifier string, expiresAt time.Time) error
+	GetStateData(state string) (*StateData, error)
 	DeleteState(state string) error
 	Cleanup()
+}
+
+// StateData holds all security parameters for OAuth2 flow
+type StateData struct {
+	Nonce        string
+	CodeVerifier string
+	ExpiresAt    time.Time
 }
 
 // InMemoryStorage implements Storage interface
 type InMemoryStorage struct {
 	mu   sync.RWMutex
-	data map[string]*stateData
+	data map[string]*StateData
 	done chan struct{}
 	once sync.Once
 }
 
-type stateData struct {
-	nonce     string
-	expiresAt time.Time
-}
-
 func NewInMemoryStorage() *InMemoryStorage {
 	s := &InMemoryStorage{
-		data: make(map[string]*stateData),
+		data: make(map[string]*StateData),
 		done: make(chan struct{}),
 	}
 	go s.cleanupRoutine()
 	return s
 }
 
-func (s *InMemoryStorage) SaveState(state string, nonce string, expiresAt time.Time) error {
+func (s *InMemoryStorage) SaveState(state string, nonce string, codeVerifier string, expiresAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.data[state] = &stateData{
-		nonce:     nonce,
-		expiresAt: expiresAt,
+	s.data[state] = &StateData{
+		Nonce:        nonce,
+		CodeVerifier: codeVerifier,
+		ExpiresAt:    expiresAt,
 	}
 	return nil
 }
 
-func (s *InMemoryStorage) ValidateState(state string, nonce string) error {
+func (s *InMemoryStorage) GetStateData(state string) (*StateData, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	data, exists := s.data[state]
 	if !exists {
-		return ErrStateNotFound
+		return nil, ErrStateNotFound
 	}
 
-	if time.Now().After(data.expiresAt) {
-		return ErrStateExpired
+	if time.Now().After(data.ExpiresAt) {
+		return nil, ErrStateExpired
 	}
 
-	if data.nonce != nonce {
-		return errors.New("nonce mismatch")
-	}
-
-	return nil
+	return data, nil
 }
 
 func (s *InMemoryStorage) DeleteState(state string) error {
@@ -104,25 +103,8 @@ func (s *InMemoryStorage) removeExpired() {
 
 	now := time.Now()
 	for state, data := range s.data {
-		if now.After(data.expiresAt) {
+		if now.After(data.ExpiresAt) {
 			delete(s.data, state)
 		}
 	}
-}
-
-// GetNonce retrieves the nonce for a given state (helper method)
-func (s *InMemoryStorage) GetNonce(state string) (string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	data, exists := s.data[state]
-	if !exists {
-		return "", ErrStateNotFound
-	}
-
-	if time.Now().After(data.expiresAt) {
-		return "", ErrStateExpired
-	}
-
-	return data.nonce, nil
 }

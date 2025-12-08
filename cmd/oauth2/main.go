@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"gosdk/cfg"
+	user "gosdk/internal/userservice"
+	"gosdk/pkg/db"
 	"gosdk/pkg/oauth2"
 	"log"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-migrate/migrate/v4"
 )
 
 func main() {
@@ -19,31 +23,78 @@ func main() {
 	}
 
 	// ============
-	// Oauth2
+	// Postgres
 	// ============
-	oauth2mgr, err := oauth2.NewManager(context.Background(), &config.OAuth2)
+	pg := config.Postgres
+	pgDSN := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		pg.User,
+		pg.Password,
+		pg.Host,
+		pg.Port,
+		pg.DBName,
+		pg.SSLMode,
+	)
+
+	// =========
+	// Migrate
+	// =========
+	m, err := migrate.New("file://db/migrations", pgDSN)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		log.Fatal(err)
+	}
+
+	// ============
+	// Sql Executor
+	// ============
+	dbClient, err := db.NewSQLClient("postgres", pgDSN)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// ============
-	// HTTP
+	// User Service
 	// ============
-	r := gin.Default()
-	auth := r.Group("/auth")
-	{
-		auth.GET("/google", oauth2.GoogleAuthHandler(oauth2mgr))
-		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
-		auth.GET("/github", oauth2.GithubAuthHandler(oauth2mgr))
-		auth.GET("/callback/github", oauth2.GithubCallbackHandler(oauth2mgr))
+	userSvc := user.NewService(dbClient)
+
+	// ============
+	// Oauth2
+	// ============
+	oauth2mgr, err := oauth2.NewManager(context.Background(), &config.OAuth2, userSvc.ResolveUser)
+	if err != nil {
+		log.Fatal(err)
 	}
 
+	// ============
+	// Gin Engine
+	// ============
+	r := gin.Default()
+
+	// ============
+	// Oauth2 Endpoint
+	// ============
+	auth := r.Group("/auth")
+	{
+		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
+	}
 	protected := r.Group("/auth")
 	protected.Use(oauth2.AuthMiddleware(oauth2mgr))
 	{
 		protected.GET("/me", oauth2.MeHandler(oauth2mgr))
-		protected.GET("/refresh", oauth2.RefreshTokenHandler(oauth2mgr))
-		protected.GET("/logout", oauth2.LogoutHandler(oauth2mgr))
+	}
+
+	// ============
+	// User Endpoint
+	// ============
+	userHandler := user.NewHandler(oauth2mgr)
+	user := r.Group("/user")
+	{
+		user.POST("/user/login", userHandler.LoginHandler)
+		user.POST("/user/logout", userHandler.LogoutHandler)
 	}
 
 	if err := r.Run(":8080"); err != nil {

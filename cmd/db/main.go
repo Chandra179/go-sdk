@@ -24,7 +24,7 @@ func main() {
 	}
 
 	// ============
-	// Build Postgres DSN from config
+	// Postgres
 	// ============
 	pg := config.Postgres
 	pgDSN := fmt.Sprintf(
@@ -38,7 +38,7 @@ func main() {
 	)
 
 	// ============
-	// Init DB client
+	// DB client
 	// ============
 	client, err := db.NewSQLClient("postgres", pgDSN)
 	if err != nil {

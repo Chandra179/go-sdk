@@ -13,49 +13,43 @@ var (
 	ErrInvalidState     = errors.New("invalid state")
 )
 
+// UserResolver is a callback function that resolves federated identity to internal user ID
+type UserResolver func(ctx context.Context, provider, subjectID, email, fullName string) (string, error)
+
 // Manager manages OAuth2/OIDC providers and authentication flow
 type Manager struct {
 	providers      map[string]Provider
 	stateStorage   StateStorage
 	sessionStore   SessionStore
+	userResolver   UserResolver
 	stateTimeout   time.Duration
 	sessionTimeout time.Duration
 }
 
 // NewManager creates a new manager with providers from configuration
-func NewManager(ctx context.Context, cfg *cfg.Oauth2Config) (*Manager, error) {
+func NewManager(ctx context.Context, cfg *cfg.Oauth2Config, userResolver UserResolver) (*Manager, error) {
 	mgr := &Manager{
 		providers:      make(map[string]Provider),
 		stateStorage:   NewInMemoryStorage(),
 		sessionStore:   NewInMemorySessionStore(),
+		userResolver:   userResolver,
 		stateTimeout:   10 * time.Minute,
 		sessionTimeout: 24 * time.Hour,
 	}
 
-	// Initialize Google OIDC provider
 	if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
 		googleProvider, err := NewGoogleOIDCProvider(
 			ctx,
 			cfg.GoogleClientID,
 			cfg.GoogleClientSecret,
 			cfg.GoogleRedirectUrl,
+			cfg.GoogleLogoutUrl,
 			nil,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Google provider: %w", err)
 		}
 		mgr.RegisterProvider(googleProvider)
-	}
-
-	// Initialize GitHub OAuth2 provider
-	if cfg.GithubClientID != "" && cfg.GithubClientSecret != "" {
-		githubProvider := NewGitHubOAuth2Provider(
-			cfg.GithubClientID,
-			cfg.GithubClientSecret,
-			cfg.GithubRedirectUrl,
-			nil,
-		)
-		mgr.RegisterProvider(githubProvider)
 	}
 
 	return mgr, nil
@@ -66,32 +60,36 @@ func (m *Manager) RegisterProvider(provider Provider) {
 	m.providers[provider.GetName()] = provider
 }
 
-// GetAuthURL generates authorization URL with state and nonce
+// GetAuthURL generates authorization URL with state, nonce, and PKCE
 func (m *Manager) GetAuthURL(providerName string) (string, error) {
 	provider, exists := m.providers[providerName]
 	if !exists {
 		return "", ErrProviderNotFound
 	}
 
-	// Generate state
 	state, err := GenerateRandomString(32)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	// Generate nonce
 	nonce, err := GenerateRandomString(32)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// Store state and nonce
+	codeVerifier, err := GenerateCodeVerifier()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate code verifier: %w", err)
+	}
+	codeChallenge := GenerateCodeChallenge(codeVerifier)
+
+	// Store state, nonce, and code verifier
 	expiresAt := time.Now().Add(m.stateTimeout)
-	if err := m.stateStorage.SaveState(state, nonce, expiresAt); err != nil {
+	if err := m.stateStorage.SaveState(state, nonce, codeVerifier, expiresAt); err != nil {
 		return "", fmt.Errorf("failed to save state: %w", err)
 	}
 
-	return provider.GetAuthURL(state, nonce), nil
+	return provider.GetAuthURL(state, nonce, codeChallenge), nil
 }
 
 // HandleCallback handles OAuth2/OIDC callback and creates a session
@@ -101,8 +99,7 @@ func (m *Manager) HandleCallback(ctx context.Context, providerName, code, state 
 		return "", nil, ErrProviderNotFound
 	}
 
-	// Get and validate nonce from storage
-	nonce, err := m.stateStorage.(*InMemoryStorage).GetNonce(state)
+	stateData, err := m.stateStorage.GetStateData(state)
 	if err != nil {
 		return "", nil, fmt.Errorf("invalid state: %w", err)
 	}
@@ -110,13 +107,20 @@ func (m *Manager) HandleCallback(ctx context.Context, providerName, code, state 
 	// Delete state after retrieval (one-time use)
 	defer m.stateStorage.DeleteState(state)
 
-	// Handle callback through provider
-	userInfo, tokenSet, err := provider.HandleCallback(ctx, code, state, nonce)
+	userInfo, tokenSet, err := provider.HandleCallback(ctx, code, state, stateData.Nonce, stateData.CodeVerifier)
 	if err != nil {
 		return "", nil, fmt.Errorf("callback failed: %w", err)
 	}
 
-	// Create session
+	// Resolve federated identity to internal user ID via callback
+	if m.userResolver != nil {
+		internalUserID, err := m.userResolver(ctx, providerName, userInfo.ID, userInfo.Email, userInfo.Name)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to resolve user: %w", err)
+		}
+		userInfo.ID = internalUserID
+	}
+
 	session, err := m.sessionStore.Create(userInfo, tokenSet, m.sessionTimeout)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create session: %w", err)
@@ -141,7 +145,6 @@ func (m *Manager) RefreshSession(ctx context.Context, sessionID string) error {
 		return errors.New("no refresh token available")
 	}
 
-	// Only Google OIDC provider supports refresh
 	provider, exists := m.providers[session.UserInfo.Provider]
 	if !exists {
 		return ErrProviderNotFound
@@ -154,10 +157,12 @@ func (m *Manager) RefreshSession(ctx context.Context, sessionID string) error {
 
 	newTokenSet, err := googleProvider.RefreshToken(ctx, session.TokenSet.RefreshToken)
 	if err != nil {
-		return fmt.Errorf("failed to refresh token: %w", err)
+		// Refresh failed - delete session and force re-login
+		// TODO: need to be detailed on this (logging, tracing why it failed, could be using retry if neccesary)
+		m.DeleteSession(sessionID)
+		return fmt.Errorf("failed to refresh token (session deleted): %w", err)
 	}
 
-	// Update session with new tokens
 	return m.sessionStore.Update(sessionID, newTokenSet)
 }
 

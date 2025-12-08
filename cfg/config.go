@@ -19,9 +19,7 @@ type Oauth2Config struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleRedirectUrl  string
-	GithubClientID     string
-	GithubClientSecret string
-	GithubRedirectUrl  string
+	GoogleLogoutUrl    string
 	JWTSecret          string
 	JWTExpiration      time.Duration
 	StateTimeout       time.Duration
@@ -69,9 +67,6 @@ func Load() (*Config, error) {
 	googleClientID := mustEnv("GOOGLE_CLIENT_ID", &errs)
 	googleClientSecret := mustEnv("GOOGLE_CLIENT_SECRET", &errs)
 	googleRedirectUrl := mustEnv("GOOGLE_REDIRECT_URL", &errs)
-	githubClientID := mustEnv("GITHUB_CLIENT_ID", &errs)
-	githubClientSecret := mustEnv("GITHUB_CLIENT_SECRET", &errs)
-	githubRedirectUrl := mustEnv("GITHUB_REDIRECT_URL", &errs)
 	jwtSecret := mustEnv("JWT_SECRET", &errs)
 	jwtExpirationStr := mustEnv("JWT_EXPIRATION", &errs)
 	jwtExpiration, err := time.ParseDuration(jwtExpirationStr)
@@ -116,9 +111,6 @@ func Load() (*Config, error) {
 			GoogleClientID:     googleClientID,
 			GoogleClientSecret: googleClientSecret,
 			GoogleRedirectUrl:  googleRedirectUrl,
-			GithubClientID:     githubClientID,
-			GithubClientSecret: githubClientSecret,
-			GithubRedirectUrl:  githubRedirectUrl,
 			JWTSecret:          jwtSecret,
 			JWTExpiration:      jwtExpiration,
 			StateTimeout:       stateTimeout,

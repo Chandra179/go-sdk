@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"gosdk/cfg"
+	user "gosdk/internal/userservice"
 	"gosdk/pkg/cache"
 	"gosdk/pkg/db"
 	"gosdk/pkg/logger"
@@ -67,7 +67,7 @@ func main() {
 	}
 
 	// ============
-	// Build Postgres DSN from config
+	// Postgres
 	// ============
 	pg := config.Postgres
 	pgDSN := fmt.Sprintf(
@@ -81,28 +81,11 @@ func main() {
 	)
 
 	// ============
-	// Init DB client
+	// DB Client
 	// ============
-	client, err := db.NewSQLClient("postgres", pgDSN)
+	dbClient, err := db.NewSQLClient("postgres", pgDSN)
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	// ============
-	// Example transaction
-	// ============
-	err = client.WithTransaction(context.Background(), sql.LevelSerializable,
-		func(ctx context.Context, tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, "INSERT INTO users(id, name) VALUES($1, $2)", 1, "Alice")
-			if err != nil {
-				return err
-			}
-			return nil
-		})
-	if err != nil {
-		fmt.Println("Transaction failed:", err)
-	} else {
-		fmt.Println("Transaction committed successfully")
 	}
 
 	// =========
@@ -124,9 +107,14 @@ func main() {
 	_ = cache.NewRedisCache(redisAddr)
 
 	// ============
+	// User Service
+	// ============
+	userSvc := user.NewService(dbClient)
+
+	// ============
 	// Oauth2
 	// ============
-	oauth2mgr, err := oauth2.NewManager(context.Background(), &config.OAuth2)
+	oauth2mgr, err := oauth2.NewManager(context.Background(), &config.OAuth2, userSvc.ResolveUser)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -155,20 +143,28 @@ func main() {
 		c.String(200, html)
 	})
 
+	// ============
+	// Auth Endpoint
+	// ============
 	auth := r.Group("/auth")
 	{
-		auth.GET("/google", oauth2.GoogleAuthHandler(oauth2mgr))
 		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
-		auth.GET("/github", oauth2.GithubAuthHandler(oauth2mgr))
-		auth.GET("/callback/github", oauth2.GithubCallbackHandler(oauth2mgr))
 	}
 
 	protected := r.Group("/auth")
 	protected.Use(oauth2.AuthMiddleware(oauth2mgr))
 	{
 		protected.GET("/me", oauth2.MeHandler(oauth2mgr))
-		protected.GET("/refresh", oauth2.RefreshTokenHandler(oauth2mgr))
-		protected.GET("/logout", oauth2.LogoutHandler(oauth2mgr))
+	}
+
+	// ============
+	// User Endpoint
+	// ============
+	userHandler := user.NewHandler(oauth2mgr)
+	user := r.Group("/user")
+	{
+		user.POST("/login", userHandler.LoginHandler)
+		user.POST("/logout", userHandler.LogoutHandler)
 	}
 
 	if err := r.Run(":8080"); err != nil {
