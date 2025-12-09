@@ -15,7 +15,7 @@ gen:
 
 # Usage: make swagger
 swagger:
-	$(GOBIN)/swag init -g main.go --output docs
+	$(GOBIN)/swag init -d .. -g cmd/myapp/main.go --output .
 
 # Usage: make install
 install:
