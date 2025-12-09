@@ -3,7 +3,6 @@
 This project is a Go template demonstrating reusable packages and runnable example services.
 
 ## Project Structure
-
 ```
 ├── cmd/                               # Runnable applications / entrypoints
 │   ├── oauth2/                        # Example OAuth2 service
@@ -20,7 +19,7 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │   │   └── main.go
 │   ├── openapi/                       # OpenAPI server demo
 │   │   └── main.go
-│   ├── myapp/                         # Complete application using all packages
+│   ├── myapp/                         # Complete application including all packages (oauth2, otel, redis, etc..)
 │   │   └── main.go
 │   ├── passkey/                       # Passkey webauthn examples
 │   │   └── main.go
@@ -49,14 +48,11 @@ This project is a Go template demonstrating reusable packages and runnable examp
 ```
 
 ## Key Points
-
 1. **`cmd/` folder**  
    - Each subdirectory represents a **separate runnable service or example**.  
-   - Demonstrates **service configuration and execution**.
 
 2. **`pkg/` folder**  
-   - Contains **reusable packages** for core functionality.  
-   - Standard Go convention for libraries.  
+   - Contains **reusable packages** for core functionality.
 
 3. **Usage Examples**  
    - Run the OAuth2 service:  
@@ -69,20 +65,4 @@ This project is a Go template demonstrating reusable packages and runnable examp
      ```  
    - Each service uses reusable logic from `pkg/`.
 
-## Proto
-Before generating .proto files, install protoc and the required Go plugins. see
-api/proto/Makefile for the installation
-
-## DB
-```
-curl -L https://github.com/golang-migrate/migrate/releases/latest/download/migrate.linux-amd64.tar.gz | tar xvz
-sudo mv migrate /usr/local/bin/
-
-migrate create -ext sql -dir db/migrations -seq initial
-
-migrate -database "postgres://user:pass@localhost:5432/mydb?sslmode=disable" \
-        -path db/migrations up
-migrate -database "postgres://user:pass@localhost:5432/mydb?sslmode=disable" \
-        -path db/migrations down 1
-
-```
+4. For more detail implementation for each Package see `README.md` in each package directory

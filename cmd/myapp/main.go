@@ -151,12 +151,6 @@ func main() {
 		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
 	}
 
-	protected := r.Group("/auth")
-	protected.Use(oauth2.AuthMiddleware(oauth2mgr))
-	{
-		protected.GET("/me", oauth2.MeHandler(oauth2mgr))
-	}
-
 	// ============
 	// User Endpoint
 	// ============

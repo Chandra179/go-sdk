@@ -60,36 +60,6 @@ func GoogleCallbackHandler(manager *Manager) gin.HandlerFunc {
 	}
 }
 
-// MeHandler returns authenticated user info from session
-// @Summary Get authenticated user info
-// @Description Returns user info from session
-// @Tags oauth2
-// @Produce json
-// @Success 200 {object} map[string]interface{} "User info"
-// @Failure 401 {object} map[string]string "Unauthorized"
-// @Router /api/me [get]
-func MeHandler(manager *Manager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		sessionID, err := c.Cookie(sessionCookieName)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "no session found"})
-			return
-		}
-
-		session, err := manager.GetSession(sessionID)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired session"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"user":       session.UserInfo,
-			"created_at": session.CreatedAt,
-			"expires_at": session.ExpiresAt,
-		})
-	}
-}
-
 // AuthMiddleware is a middleware that validates session and proactively refreshes tokens
 func AuthMiddleware(manager *Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
