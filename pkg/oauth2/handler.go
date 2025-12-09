@@ -15,6 +15,70 @@ const (
 	tokenRefreshLeeway = 5 * time.Minute // Refresh tokens 5 minutes before expiry
 )
 
+// LoginRequest represents the login request body
+type LoginRequest struct {
+	Provider string `json:"provider" binding:"required"` // "google" or "github"
+}
+
+// LoginHandler initiates OAuth2 login flow
+// @Summary Login with OAuth2 provider
+// @Description Redirects to OAuth2 provider authorization page
+// @Tags oauth2
+// @Accept json
+// @Produce json
+// @Param request body LoginRequest true "Login request"
+// @Success 302 {string} string "Redirect to OAuth2 provider"
+// @Failure 400 {object} map[string]string "Bad request"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /auth/login [post]
+func LoginHandler(manager *Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req LoginRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "provider is required"})
+			return
+		}
+
+		// Get authorization URL from OAuth2 manager
+		authURL, err := manager.GetAuthURL(req.Provider)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Redirect user to OAuth2 provider
+		c.Redirect(http.StatusFound, authURL)
+	}
+}
+
+// LogoutHandler logs out the user
+// @Summary Logout
+// @Description Deletes user session, clears cookie, and performs upstream provider logout
+// @Tags oauth2
+// @Produce json
+// @Router /auth/logout [post]
+func LogoutHandler(manager *Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		sessionID, err := c.Cookie(sessionCookieName)
+
+		if err == nil {
+			manager.DeleteSession(sessionID)
+		}
+
+		c.SetCookie(
+			sessionCookieName,
+			"",
+			-1,
+			"/",
+			"",
+			true,
+			true,
+		)
+
+		c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+	}
+}
+
 // GoogleCallbackHandler handles Google OAuth2 callback
 // @Summary Google OAuth2 callback
 // @Description Handles Google OAuth2 callback and creates session

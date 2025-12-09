@@ -148,17 +148,9 @@ func main() {
 	// ============
 	auth := r.Group("/auth")
 	{
+		auth.POST("/login", oauth2.LoginHandler(oauth2mgr))
+		auth.POST("/logout", oauth2.LogoutHandler(oauth2mgr))
 		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
-	}
-
-	// ============
-	// User Endpoint
-	// ============
-	userHandler := user.NewHandler(oauth2mgr)
-	user := r.Group("/user")
-	{
-		user.POST("/login", userHandler.LoginHandler)
-		user.POST("/logout", userHandler.LogoutHandler)
 	}
 
 	if err := r.Run(":8080"); err != nil {
