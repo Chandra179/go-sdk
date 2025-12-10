@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"gosdk/cfg"
-	user "gosdk/internal/userservice"
+	"gosdk/internal/authservice"
 	"gosdk/pkg/db"
 	"gosdk/pkg/oauth2"
+	"gosdk/pkg/session"
 	"log"
 
 	"github.com/gin-gonic/gin"
@@ -57,16 +58,26 @@ func main() {
 	}
 
 	// ============
-	// User Service
+	// Session Store
 	// ============
-	userSvc := user.NewService(dbClient)
+	sessionStore := session.NewInMemoryStore()
 
 	// ============
 	// Oauth2
 	// ============
-	oauth2mgr, err := oauth2.NewManager(context.Background(), &config.OAuth2, userSvc.ResolveUser)
+	oauth2mgr, err := oauth2.NewManager(context.Background(), &config.OAuth2)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// ============
+	// Auth Service
+	// ============
+	authSvc := authservice.NewService(oauth2mgr, sessionStore, dbClient)
+	authHandler := authservice.NewHandler(authSvc)
+	oauth2mgr.CallbackHandler = func(ctx context.Context, provider string, userInfo *oauth2.UserInfo,
+		tokenSet *oauth2.TokenSet) (*oauth2.CallbackInfo, error) {
+		return authSvc.HandleCallback(ctx, provider, userInfo, tokenSet)
 	}
 
 	// ============
@@ -79,9 +90,8 @@ func main() {
 	// ============
 	auth := r.Group("/auth")
 	{
-		auth.POST("/login", oauth2.LoginHandler(oauth2mgr))
-		auth.POST("/logout", oauth2.LogoutHandler(oauth2mgr))
-		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
+		auth.POST("/login", authHandler.LoginHandler())
+		auth.POST("/logout", authHandler.LogoutHandler())
 	}
 
 	if err := r.Run(":8080"); err != nil {

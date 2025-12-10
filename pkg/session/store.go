@@ -1,4 +1,4 @@
-package oauth2
+package session
 
 import (
 	"errors"
@@ -11,35 +11,34 @@ var (
 	ErrSessionExpired  = errors.New("session expired")
 )
 
-// Session represents a user session with tokens
+// Session represents a generic session with binary data
 type Session struct {
 	ID           string    `json:"id"`
-	UserInfo     *UserInfo `json:"user_info"`
-	TokenSet     *TokenSet `json:"token_set"`
+	Data         []byte    `json:"data"` // Generic binary data
 	CreatedAt    time.Time `json:"created_at"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	LastAccessed time.Time `json:"last_accessed"`
 }
 
-// SessionStore interface for managing sessions
-type SessionStore interface {
-	Create(userInfo *UserInfo, tokenSet *TokenSet, ttl time.Duration) (*Session, error)
+// Store interface for managing sessions
+type Store interface {
+	Create(data []byte, ttl time.Duration) (*Session, error)
 	Get(sessionID string) (*Session, error)
-	Update(sessionID string, tokenSet *TokenSet) error
+	Update(sessionID string, data []byte) error
 	Delete(sessionID string) error
-	Cleanup()
 }
 
-// InMemorySessionStore implements SessionStore
-type InMemorySessionStore struct {
+// InMemoryStore implements Store interface
+type InMemoryStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
 	done     chan struct{}
 	once     sync.Once
 }
 
-func NewInMemorySessionStore() *InMemorySessionStore {
-	store := &InMemorySessionStore{
+// NewInMemoryStore creates a new in-memory session store
+func NewInMemoryStore() *InMemoryStore {
+	store := &InMemoryStore{
 		sessions: make(map[string]*Session),
 		done:     make(chan struct{}),
 	}
@@ -47,8 +46,9 @@ func NewInMemorySessionStore() *InMemorySessionStore {
 	return store
 }
 
-func (s *InMemorySessionStore) Create(userInfo *UserInfo, tokenSet *TokenSet, ttl time.Duration) (*Session, error) {
-	sessionID, err := GenerateRandomString(32)
+// Create creates a new session with the given data and TTL
+func (s *InMemoryStore) Create(data []byte, ttl time.Duration) (*Session, error) {
+	sessionID, err := generateRandomString(32)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +56,7 @@ func (s *InMemorySessionStore) Create(userInfo *UserInfo, tokenSet *TokenSet, tt
 	now := time.Now()
 	session := &Session{
 		ID:           sessionID,
-		UserInfo:     userInfo,
-		TokenSet:     tokenSet,
+		Data:         data,
 		CreatedAt:    now,
 		ExpiresAt:    now.Add(ttl),
 		LastAccessed: now,
@@ -70,7 +69,8 @@ func (s *InMemorySessionStore) Create(userInfo *UserInfo, tokenSet *TokenSet, tt
 	return session, nil
 }
 
-func (s *InMemorySessionStore) Get(sessionID string) (*Session, error) {
+// Get retrieves a session by ID and updates last accessed time
+func (s *InMemoryStore) Get(sessionID string) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -90,7 +90,8 @@ func (s *InMemorySessionStore) Get(sessionID string) (*Session, error) {
 	return session, nil
 }
 
-func (s *InMemorySessionStore) Update(sessionID string, tokenSet *TokenSet) error {
+// Update updates session data
+func (s *InMemoryStore) Update(sessionID string, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -104,26 +105,22 @@ func (s *InMemorySessionStore) Update(sessionID string, tokenSet *TokenSet) erro
 		return ErrSessionExpired
 	}
 
-	session.TokenSet = tokenSet
+	session.Data = data
 	session.LastAccessed = time.Now()
 
 	return nil
 }
 
-func (s *InMemorySessionStore) Delete(sessionID string) error {
+// Delete removes a session
+func (s *InMemoryStore) Delete(sessionID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, sessionID)
 	return nil
 }
 
-func (s *InMemorySessionStore) Cleanup() {
-	s.once.Do(func() {
-		close(s.done)
-	})
-}
-
-func (s *InMemorySessionStore) cleanupRoutine() {
+// cleanupRoutine periodically removes expired sessions
+func (s *InMemoryStore) cleanupRoutine() {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 
@@ -137,7 +134,8 @@ func (s *InMemorySessionStore) cleanupRoutine() {
 	}
 }
 
-func (s *InMemorySessionStore) removeExpired() {
+// removeExpired removes all expired sessions
+func (s *InMemoryStore) removeExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
