@@ -2,6 +2,6 @@
 ### User login
 ### ============================================
 curl -i -s \
-  -X POST http://localhost:8080/user/login \
+  -X POST http://localhost:8080/auth/login \
   -H "Content-Type: application/json" \
   -d '{"provider": "google"}'

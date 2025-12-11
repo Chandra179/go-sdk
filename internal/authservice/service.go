@@ -58,8 +58,10 @@ func (s *Service) HandleCallback(ctx context.Context, provider string,
 	}
 
 	return &oauth2.CallbackInfo{
-		SessionID: sess.ID,
-		UserID:    internalUserID,
+		SessionID:         sess.ID,
+		UserID:            internalUserID,
+		SessionCookieName: SessionCookieName,
+		CookieMaxAge:      CookieMaxAge,
 	}, nil
 }
 

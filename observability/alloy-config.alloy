@@ -1,0 +1,44 @@
+// OTLP receiver for traces and metrics
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+// Batch processor for better performance
+otelcol.processor.batch "default" {
+  output {
+    metrics = [otelcol.exporter.prometheus.default.input]
+    traces  = [otelcol.exporter.otlp.jaeger.input]
+  }
+}
+
+// Export metrics to Prometheus
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}
+
+// Export traces to Jaeger
+otelcol.exporter.otlp "jaeger" {
+  client {
+    endpoint = "jaeger:4317"
+    tls {
+      insecure = true
+    }
+  }
+}

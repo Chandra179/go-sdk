@@ -92,6 +92,7 @@ func main() {
 	{
 		auth.POST("/login", authHandler.LoginHandler())
 		auth.POST("/logout", authHandler.LogoutHandler())
+		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
 	}
 
 	if err := r.Run(":8080"); err != nil {

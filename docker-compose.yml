@@ -1,26 +1,128 @@
-version: "3.9"
+  version: "3.9"
 
-services:
-  redis:
-    image: redis:alpine
-    container_name: redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
+  services:
+    redis:
+      image: redis:alpine
+      container_name: redis
+      ports:
+        - "6379:6379"
+      volumes:
+        - redis-data:/data
+      networks:
+        - app-network
 
-  postgres:
-    image: postgres:15-alpine
-    container_name: postgres
-    environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydb
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
+    postgres:
+      image: postgres:15-alpine
+      container_name: postgres
+      environment:
+        POSTGRES_USER: myuser
+        POSTGRES_PASSWORD: mypassword
+        POSTGRES_DB: mydb
+      ports:
+        - "5432:5432"
+      volumes:
+        - postgres-data:/var/lib/postgresql/data
+      networks:
+        - app-network
 
-volumes:
-  redis-data:
-  postgres-data:
+    jaeger:
+      image: jaegertracing/all-in-one:latest
+      container_name: jaeger
+      ports:
+        - "16686:16686"  # Jaeger UI
+        - "14250:14250"  # gRPC
+        - "4317:4317"    # OTLP gRPC
+        - "4318:4318"    # OTLP HTTP
+      environment:
+        - COLLECTOR_OTLP_ENABLED=true
+      networks:
+        - app-network
+
+    prometheus:
+      image: prom/prometheus:latest
+      container_name: prometheus
+      ports:
+        - "9090:9090"
+      volumes:
+        - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+        - prometheus-data:/prometheus
+      command:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+        - '--web.console.templates=/usr/share/prometheus/consoles'
+      networks:
+        - app-network
+
+    loki:
+      image: grafana/loki:latest
+      container_name: loki
+      ports:
+        - "3100:3100"
+      volumes:
+        - ./observability/loki-config.yml:/etc/loki/local-config.yaml
+        - loki-data:/loki
+      command: -config.file=/etc/loki/local-config.yaml
+      networks:
+        - app-network
+
+    promtail:
+      image: grafana/promtail:latest
+      container_name: promtail
+      volumes:
+        - ./observability/promtail-config.yml:/etc/promtail/config.yml
+        - /var/log:/var/log
+        - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      command: -config.file=/etc/promtail/config.yml
+      networks:
+        - app-network
+      depends_on:
+        - loki
+
+    alloy:
+      image: grafana/alloy:latest
+      container_name: alloy
+      ports:
+        - "12345:12345" # Alloy UI
+      volumes:
+        - ./observability/alloy-config.alloy:/etc/alloy/config.alloy
+      command:
+        - run
+        - --server.http.listen-addr=0.0.0.0:12345
+        - /etc/alloy/config.alloy
+      networks:
+        - app-network
+      depends_on:
+        - jaeger
+        - prometheus
+        - loki
+
+    grafana:
+      image: grafana/grafana:latest
+      container_name: grafana
+      ports:
+        - "3000:3000"
+      environment:
+        - GF_SECURITY_ADMIN_USER=admin
+        - GF_SECURITY_ADMIN_PASSWORD=admin
+        - GF_USERS_ALLOW_SIGN_UP=false
+      volumes:
+        - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+        - grafana-data:/var/lib/grafana
+      networks:
+        - app-network
+      depends_on:
+        - prometheus
+        - loki
+        - jaeger
+
+  networks:
+    app-network:
+      driver: bridge
+
+  volumes:
+    redis-data:
+    postgres-data:
+    prometheus-data:
+    loki-data:
+    grafana-data:
