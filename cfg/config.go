@@ -28,7 +28,6 @@ type Oauth2Config struct {
 type ObservabilityConfig struct {
 	OTLPEndpoint string
 	ServiceName  string
-	Environment  string
 }
 
 type PostgresConfig struct {
@@ -92,9 +91,8 @@ func Load() (*Config, error) {
 	// ==========
 	// Observability
 	// ==========
-	otlpEndpoint := getEnvOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "alloy.observability.svc.cluster.local:4317")
-	serviceName := getEnvOrDefault("OTEL_SERVICE_NAME", "gosdk-app")
-	environment := getEnvOrDefault("OTEL_RESOURCE_ATTRIBUTES", appEnv)
+	otlpEndpoint := mustEnv("OTEL_EXPORTER_OTLP_ENDPOINT", &errs)
+	serviceName := mustEnv("OTEL_SERVICE_NAME", &errs)
 
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
@@ -118,7 +116,6 @@ func Load() (*Config, error) {
 		Observability: ObservabilityConfig{
 			OTLPEndpoint: otlpEndpoint,
 			ServiceName:  serviceName,
-			Environment:  environment,
 		},
 		Postgres: PostgresConfig{
 			Host:     pgHost,

@@ -166,6 +166,8 @@ func main() {
 		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
 	}
 
+	zlogger.Info("testttt")
+
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
@@ -231,7 +233,6 @@ func initOtel(ctx context.Context, config *cfg.ObservabilityConfig, log logger.L
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName(config.ServiceName),
-			semconv.DeploymentEnvironment(config.Environment),
 		),
 	)
 	if err != nil {

@@ -98,7 +98,6 @@ func initOtel(ctx context.Context, config *cfg.ObservabilityConfig) (func(contex
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName(config.ServiceName),
-			semconv.DeploymentEnvironment(config.Environment),
 		),
 	)
 	if err != nil {
