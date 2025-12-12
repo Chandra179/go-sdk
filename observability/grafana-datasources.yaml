@@ -1,0 +1,44 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: true
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: true
+    jsonData:
+      derivedFields:
+        # This Regex looks for "trace_id=..." in your logs and turns it into a clickable link to Tempo
+        - datasourceUid: tempo
+          matcherRegex: "trace_id=(\\w+)"
+          name: TraceID
+          url: "$${__value.raw}"
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: true
+    editable: true
+    jsonData:
+      # Link Traces back to Logs
+      tracesToLogs:
+        datasourceUid: loki
+        tags: ['job', 'instance', 'service_name']
+        filterByTraceID: true
+        filterBySpanID: true
+        spanStartTimeShift: '1h'
+        spanEndTimeShift: '-1h'
+      nodeGraph:
+        enabled: true
