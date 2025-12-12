@@ -9,7 +9,6 @@ otelcol.receiver.otlp "default" {
   output {
     metrics = [otelcol.processor.batch.default.input]
     logs    = [otelcol.processor.batch.default.input]
-    traces  = [otelcol.processor.batch.default.input]
   }
 }
 
@@ -17,7 +16,6 @@ otelcol.processor.batch "default" {
   output {
     metrics = [otelcol.exporter.prometheus.default.input]
     logs    = [otelcol.exporter.loki.default.input]
-    traces  = [otelcol.exporter.otlp.tempo.input]
   }
 }
 
@@ -38,14 +36,5 @@ otelcol.exporter.loki "default" {
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
-  }
-}
-
-otelcol.exporter.otlp "tempo" {
-  client {
-    endpoint = "tempo:4317"
-    tls {
-      insecure = true
-    }
   }
 }

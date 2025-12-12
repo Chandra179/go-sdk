@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log"
-	"time"
 
 	"gosdk/cfg"
 	"gosdk/internal/authservice"
@@ -16,8 +13,6 @@ import (
 	"gosdk/pkg/oauth2"
 	"gosdk/pkg/session"
 
-	_ "gosdk/api"
-
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -26,19 +21,14 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/log/global"
-	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace" // <--- ALIASED HERE
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-	"go.opentelemetry.io/otel/trace" // <--- STANDARD API HERE
 )
 
 func main() {
@@ -99,9 +89,6 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(otelgin.Middleware(config.Observability.ServiceName))
-	r.Use(TraceLoggerMiddleware(appLogger))
-
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	r.GET("/docs", func(c *gin.Context) {
@@ -123,7 +110,7 @@ func main() {
 	}
 }
 
-// setupOTelSDK bootstraps the OpenTelemetry pipeline using your config struct
+// setupOTelSDK bootstraps the OpenTelemetry pipeline (Metrics and Logs only)
 func setupOTelSDK(ctx context.Context, obsCfg *cfg.ObservabilityConfig) (shutdown func(context.Context) error, err error) {
 	var shutdownFuncs []func(context.Context) error
 
@@ -139,25 +126,14 @@ func setupOTelSDK(ctx context.Context, obsCfg *cfg.ObservabilityConfig) (shutdow
 	handleErr := func(inErr error) {
 		err = inErr
 	}
-
 	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceNameKey.String(obsCfg.ServiceName),
-		),
+		resource.WithAttributes(semconv.ServiceNameKey.String(obsCfg.ServiceName)),
 	)
 	if err != nil {
 		handleErr(err)
 		return
 	}
 
-	// Helper options for all exporters
-	// We point them to Alloy (obsCfg.OTLPEndpoint) and disable TLS (WithInsecure)
-	// because strictly internal Docker networks usually don't have certs.
-	// NOTE: Ensure obsCfg.OTLPEndpoint is "alloy:4317" (host:port), not "http://..."
-	grpcOpts := []otlptracegrpc.Option{
-		otlptracegrpc.WithEndpoint(obsCfg.OTLPEndpoint),
-		otlptracegrpc.WithInsecure(),
-	}
 	metricOpts := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpoint(obsCfg.OTLPEndpoint),
 		otlpmetricgrpc.WithInsecure(),
@@ -166,20 +142,6 @@ func setupOTelSDK(ctx context.Context, obsCfg *cfg.ObservabilityConfig) (shutdow
 		otlploggrpc.WithEndpoint(obsCfg.OTLPEndpoint),
 		otlploggrpc.WithInsecure(),
 	}
-
-	// Trace Exporter
-	traceExporter, err := otlptracegrpc.New(ctx, grpcOpts...)
-	if err != nil {
-		handleErr(err)
-		return
-	}
-	tracerProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(traceExporter),
-		sdktrace.WithResource(res),
-	)
-	otel.SetTracerProvider(tracerProvider)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-	shutdownFuncs = append(shutdownFuncs, tracerProvider.Shutdown)
 
 	// Metric Exporter
 	metricExporter, err := otlpmetricgrpc.New(ctx, metricOpts...)
@@ -208,57 +170,4 @@ func setupOTelSDK(ctx context.Context, obsCfg *cfg.ObservabilityConfig) (shutdow
 	shutdownFuncs = append(shutdownFuncs, loggerProvider.Shutdown)
 
 	return
-}
-
-type responseBodyWriter struct {
-	gin.ResponseWriter
-	body *bytes.Buffer
-}
-
-func (w responseBodyWriter) Write(b []byte) (int, error) {
-	w.body.Write(b)
-	return w.ResponseWriter.Write(b)
-}
-
-func TraceLoggerMiddleware(l *logger.AppLogger) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var reqBodyBytes []byte
-		if c.Request.Body != nil {
-			reqBodyBytes, _ = io.ReadAll(c.Request.Body)
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(reqBodyBytes))
-		}
-
-		w := &responseBodyWriter{
-			body:           bytes.NewBufferString(""),
-			ResponseWriter: c.Writer,
-		}
-		c.Writer = w
-
-		start := time.Now()
-		c.Next()
-		duration := time.Since(start)
-
-		spanCtx := trace.SpanContextFromContext(c.Request.Context())
-		traceID := ""
-		if spanCtx.IsValid() {
-			traceID = spanCtx.TraceID().String()
-		}
-
-		fields := []logger.Field{
-			{Key: "trace_id", Value: traceID},
-			{Key: "method", Value: c.Request.Method},
-			{Key: "path", Value: c.Request.URL.Path},
-			{Key: "status", Value: c.Writer.Status()},
-			{Key: "latency", Value: duration.String()},
-			{Key: "request_body", Value: string(reqBodyBytes)},
-			{Key: "response_body", Value: w.body.String()},
-		}
-
-		msg := "HTTP Request"
-		if c.Writer.Status() >= 500 {
-			l.Error(c.Request.Context(), msg, fields...)
-		} else {
-			l.Info(c.Request.Context(), msg, fields...)
-		}
-	}
 }

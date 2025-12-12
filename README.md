@@ -4,27 +4,9 @@ This project is a Go template demonstrating reusable packages and runnable examp
 
 ## Project Structure
 ```
-├── cmd/                               # Runnable applications / entrypoints
-│   ├── oauth2/                        # Example OAuth2 service
-│   │   └── main.go
-│   ├── otel/                          # OpenTelemetry demo service
-│   │   └── main.go
-│   ├── redis/                         # Redis caching example
-│   │   └── main.go
-│   ├── cache/                         # Cache service example
-│   │   └── main.go
-│   ├── db/                            # Database service example
-│   │   └── main.go
-│   ├── logger/                        # Logger example service
-│   │   └── main.go
-│   ├── openapi/                       # OpenAPI server demo
-│   │   └── main.go
+├── cmd/                               # Runnable applicat
 │   ├── myapp/                         # Complete application including all packages (oauth2, otel, redis, etc..)
 │   │   └── main.go
-│   ├── passkey/                       # Passkey webauthn examples
-│   │   └── main.go
-│   └── proto/                         # gRPC server/client examples
-│       └── main.go
 ├── pkg/                               # Reusable library packages
 │   ├── cache/                         # Cache interfaces, Redis helpers, wrappers
 │   ├── db/                            # Database connectors, migrations, helpers
