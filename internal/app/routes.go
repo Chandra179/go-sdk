@@ -1,7 +1,7 @@
 package app
 
 import (
-	"gosdk/internal/authservice"
+	"gosdk/internal/service/auth"
 	"gosdk/pkg/oauth2"
 
 	"github.com/gin-gonic/gin"
@@ -16,7 +16,7 @@ func setupInfraRoutes(r *gin.Engine) {
 	r.GET("/docs", docsHandler)
 }
 
-func setupAuthRoutes(r *gin.Engine, handler *authservice.Handler, oauth2mgr *oauth2.Manager) {
+func setupAuthRoutes(r *gin.Engine, handler *auth.Handler, oauth2mgr *oauth2.Manager) {
 	auth := r.Group("/auth")
 	{
 		auth.POST("/login", handler.LoginHandler())

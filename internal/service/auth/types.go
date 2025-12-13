@@ -1,4 +1,4 @@
-package authservice
+package auth
 
 import (
 	"errors"
@@ -27,22 +27,16 @@ const (
 )
 
 var (
-	ErrUserNotFound              = errors.New("user not found")
-	ErrFederatedIdentityNotFound = errors.New("federated identity not found")
+	ErrUserNotFound = errors.New("user not found")
 )
 
 // User represents a user in the system
 type User struct {
 	ID        string    `json:"id"`
+	Provider  string    `json:"provider"`
+	SubjectID string    `json:"subject_id"`
 	Email     string    `json:"email"`
 	FullName  string    `json:"full_name"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// FederatedIdentity represents a linked OAuth provider identity
-type FederatedIdentity struct {
-	Provider  string `json:"provider"`
-	SubjectID string `json:"subject_id"`
-	UserID    string `json:"user_id"`
 }

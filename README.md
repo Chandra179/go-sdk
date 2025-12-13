@@ -35,16 +35,3 @@ This project is a Go template demonstrating reusable packages and runnable examp
 
 2. **`pkg/` folder**  
    - Contains **reusable packages** for core functionality.
-
-3. **Usage Examples**  
-   - Run the OAuth2 service:  
-     ```bash
-     go run ./cmd/oauth2
-     ```  
-   - Run the OTEL service:  
-     ```bash
-     go run ./cmd/otel
-     ```  
-   - Each service uses reusable logic from `pkg/`.
-
-4. For more detail implementation for each Package see `README.md` in each package directory

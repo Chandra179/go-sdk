@@ -1,4 +1,4 @@
-package authservice
+package auth
 
 import (
 	"context"
@@ -137,66 +137,45 @@ func (s *Service) ValidateAndRefreshSession(ctx context.Context, sessionID strin
 	return sessionData, nil
 }
 
-// GetOrCreateUser finds existing user by federated identity or creates new user with federated identity
+// GetOrCreateUser finds existing user by provider and subject_id or creates new user
 func (s *Service) GetOrCreateUser(ctx context.Context, provider, subjectID, email, fullName string) (string, error) {
-	fedIdentity, err := s.getFederatedIdentity(ctx, provider, subjectID)
+	user, err := s.getUserByProviderAndSubject(ctx, provider, subjectID)
 	if err == nil {
-		user, err := s.getUserByID(ctx, fedIdentity.UserID)
-		if err != nil {
-			return "", fmt.Errorf("failed to get user: %w", err)
-		}
 		return user.ID, nil
 	}
 
-	if !errors.Is(err, ErrFederatedIdentityNotFound) {
-		return "", fmt.Errorf("failed to check federated identity: %w", err)
+	if !errors.Is(err, ErrUserNotFound) {
+		return "", fmt.Errorf("failed to check user: %w", err)
 	}
 
-	// No existing identity found, create new user and federated identity in transaction
-	var userID string
-	err = s.db.WithTransaction(ctx, sql.LevelReadCommitted, func(ctx context.Context, tx *sql.Tx) error {
-		userID := uuid.NewString()
-		now := time.Now()
+	userID := uuid.NewString()
+	now := time.Now()
 
-		insertUserQuery := `
-			INSERT INTO users (id, email, full_name, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5)
-		`
-		_, err := tx.ExecContext(ctx, insertUserQuery, userID, email, fullName, now, now)
-		if err != nil {
-			return fmt.Errorf("failed to insert user: %w", err)
-		}
-
-		insertFedIdentityQuery := `
-			INSERT INTO federated_identities (provider, subject_id, user_id, last_login_at)
-			VALUES ($1, $2, $3, $4)
-		`
-		_, err = tx.ExecContext(ctx, insertFedIdentityQuery, provider, subjectID, userID, now)
-		if err != nil {
-			return fmt.Errorf("failed to insert federated identity: %w", err)
-		}
-
-		return nil
-	})
-
+	insertUserQuery := `
+		INSERT INTO users (id, provider, subject_id, email, full_name, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`
+	_, err = s.db.ExecContext(ctx, insertUserQuery, userID, provider, subjectID, email, fullName, now, now)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to insert user: %w", err)
 	}
 
 	return userID, nil
 }
 
-// getUserByID retrieves a user by their internal ID
-func (s *Service) getUserByID(ctx context.Context, userID string) (*User, error) {
+// getUserByProviderAndSubject retrieves a user by provider and subject_id
+func (s *Service) getUserByProviderAndSubject(ctx context.Context, provider, subjectID string) (*User, error) {
 	query := `
-		SELECT id, email, full_name, created_at, updated_at
+		SELECT id, provider, subject_id, email, full_name, created_at, updated_at
 		FROM users
-		WHERE id = $1
+		WHERE provider = $1 AND subject_id = $2
 	`
 
 	var user User
-	err := s.db.QueryRowContext(ctx, query, userID).Scan(
+	err := s.db.QueryRowContext(ctx, query, provider, subjectID).Scan(
 		&user.ID,
+		&user.Provider,
+		&user.SubjectID,
 		&user.Email,
 		&user.FullName,
 		&user.CreatedAt,
@@ -211,31 +190,6 @@ func (s *Service) getUserByID(ctx context.Context, userID string) (*User, error)
 	}
 
 	return &user, nil
-}
-
-// getFederatedIdentity retrieves federated identity by provider and subject
-func (s *Service) getFederatedIdentity(ctx context.Context, provider, subjectID string) (*FederatedIdentity, error) {
-	query := `
-		SELECT provider, subject_id, user_id
-		FROM federated_identities
-		WHERE provider = $1 AND subject_id = $2
-	`
-
-	var fedIdentity FederatedIdentity
-	err := s.db.QueryRowContext(ctx, query, provider, subjectID).Scan(
-		&fedIdentity.Provider,
-		&fedIdentity.SubjectID,
-		&fedIdentity.UserID,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, ErrFederatedIdentityNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to query federated identity: %w", err)
-	}
-
-	return &fedIdentity, nil
 }
 
 // DeleteSession deletes a session (logout)

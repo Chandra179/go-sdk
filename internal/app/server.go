@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"gosdk/cfg"
-	"gosdk/internal/authservice"
+	"gosdk/internal/service/auth"
 	"gosdk/pkg/cache"
 	"gosdk/pkg/db"
 	"gosdk/pkg/logger"
@@ -25,7 +25,7 @@ type Server struct {
 	cache         cache.Cache
 	sessionStore  session.Store
 	oauth2Manager *oauth2.Manager
-	authService   *authservice.Service
+	authService   *auth.Service
 	shutdown      func(context.Context) error
 }
 
@@ -101,7 +101,7 @@ func (s *Server) initOAuth2(ctx context.Context) error {
 }
 
 func (s *Server) initServices() {
-	s.authService = authservice.NewService(
+	s.authService = auth.NewService(
 		s.oauth2Manager,
 		s.sessionStore,
 		s.db,
@@ -126,7 +126,7 @@ func (s *Server) setupRoutes() {
 	setupInfraRoutes(r)
 
 	// Business logic endpoints
-	authHandler := authservice.NewHandler(s.authService)
+	authHandler := auth.NewHandler(s.authService)
 	setupAuthRoutes(r, authHandler, s.oauth2Manager)
 
 	s.router = r
