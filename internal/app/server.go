@@ -7,11 +7,11 @@ import (
 
 	"gosdk/cfg"
 	"gosdk/internal/service/auth"
+	"gosdk/internal/service/session"
 	"gosdk/pkg/cache"
 	"gosdk/pkg/db"
 	"gosdk/pkg/logger"
 	"gosdk/pkg/oauth2"
-	"gosdk/pkg/session"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,7 +23,7 @@ type Server struct {
 	logger        *logger.AppLogger
 	db            *db.SQLClient
 	cache         cache.Cache
-	sessionStore  session.Store
+	sessionStore  session.Client
 	oauth2Manager *oauth2.Manager
 	authService   *auth.Service
 	shutdown      func(context.Context) error
@@ -52,7 +52,7 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 		return nil, fmt.Errorf("cache init: %w", err)
 	}
 
-	s.sessionStore = session.NewInMemoryStore()
+	s.sessionStore = session.NewRedisStore(s.cache)
 
 	if err := s.initOAuth2(ctx); err != nil {
 		return nil, fmt.Errorf("oauth2 init: %w", err)

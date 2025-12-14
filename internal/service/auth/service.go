@@ -8,20 +8,20 @@ import (
 	"fmt"
 	"time"
 
+	"gosdk/internal/service/session"
 	"gosdk/pkg/db"
 	"gosdk/pkg/oauth2"
-	"gosdk/pkg/session"
 
 	"github.com/google/uuid"
 )
 
 type Service struct {
 	oauth2Manager *oauth2.Manager
-	sessionStore  session.Store
+	sessionStore  session.Client
 	db            db.SQLExecutor
 }
 
-func NewService(oauth2Manager *oauth2.Manager, sessionStore session.Store, db db.SQLExecutor) *Service {
+func NewService(oauth2Manager *oauth2.Manager, sessionStore session.Client, db db.SQLExecutor) *Service {
 	return &Service{
 		oauth2Manager: oauth2Manager,
 		sessionStore:  sessionStore,
@@ -44,7 +44,8 @@ func (s *Service) HandleCallback(ctx context.Context, provider string,
 	}
 
 	sessionData := &SessionData{
-		UserID: internalUserID,
+		UserID:   internalUserID,
+		TokenSet: tokenSet,
 	}
 
 	data, err := json.Marshal(sessionData)

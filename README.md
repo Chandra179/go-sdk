@@ -14,9 +14,11 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │	     ├── handler.go                 # endpoint handler using gin
 │	     ├── service.go                 # service logic (business logic, query, etc..)
 │	     ├── types.go                   # struct, const, etc..
+├── db/                               
+│   ├── migrations/                    # migration files, .sql
 ├── pkg/                               # Reusable library packages
 │   ├── cache/                         # Cache interfaces, Redis helpers, wrappers
-│   ├── db/                            # Database connectors, migrations, helpers
+│   ├── db/                            # Database connectors, helpers
 │   ├── logger/                        # Zerolog wrapper & helpers
 │   ├── oauth2/                        # OAuth2 manager & token helpers
 │   └── otel/                          # OpenTelemetry setup utilities

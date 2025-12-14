@@ -5,10 +5,12 @@
 ```go
 package config
 
+//example config
 type Config struct {
 	ServiceA         ServiceAConfig
 	ServiceB      ServiceBConfig
 }
+
 type ServiceAConfig struct {
     env1 string
 }
