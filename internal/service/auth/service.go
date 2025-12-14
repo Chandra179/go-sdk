@@ -46,6 +46,7 @@ func (s *Service) HandleCallback(ctx context.Context, provider string,
 	sessionData := &SessionData{
 		UserID:   internalUserID,
 		TokenSet: tokenSet,
+		Provider: provider,
 	}
 
 	data, err := json.Marshal(sessionData)
@@ -126,11 +127,6 @@ func (s *Service) ValidateAndRefreshSession(ctx context.Context, sessionID strin
 
 	if time.Until(sessionData.TokenSet.ExpiresAt) <= TokenRefreshLeeway {
 		if err := s.RefreshToken(ctx, sessionID); err != nil {
-			return nil, err
-		}
-
-		sessionData, err = s.GetSessionData(sessionID)
-		if err != nil {
 			return nil, err
 		}
 	}
