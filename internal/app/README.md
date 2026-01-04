@@ -58,6 +58,7 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 	return s, nil
 }
 
+// Register internal service here
 func (s *Server) initServices() {
 	s.authService = auth.NewService(
 		s.oauth2Manager,
@@ -86,8 +87,8 @@ func setupInfraRoutes(r *gin.Engine) {
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	r.GET("/docs", docsHandler)
 }
-func setupAbcRoutes(r *gin.Engine) {
+func setupABCRoutes(r *gin.Engine) {
 }
-func setupDefRoutes(r *gin.Engine) {
+func setupDEFRoutes(r *gin.Engine) {
 }
 ```

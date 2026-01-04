@@ -7,6 +7,7 @@ This project is a Go template demonstrating reusable packages and runnable examp
 ├── cmd/                               # Runnable application
 │   ├── myapp/                         # calling server.go
 │       └── main.go
+|
 ├── internal/                          # internal services
 │   ├── app/                           
 │	 │   ├── server.go                  # service init, dependency injection, etc..
@@ -14,25 +15,31 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │	     ├── handler.go                 # endpoint handler using gin
 │	     ├── service.go                 # service logic (business logic, query, etc..)
 │	     ├── types.go                   # struct, const, etc..
+|
 ├── db/                               
 │   ├── migrations/                    # migration files, .sql
+|
 ├── pkg/                               # Reusable library packages
 │   ├── cache/                         # Cache interfaces, Redis helpers, wrappers
 │   ├── db/                            # Database connectors, helpers
 │   ├── logger/                        # Zerolog wrapper & helpers
 │   ├── oauth2/                        # OAuth2 manager & token helpers
 │   └── otel/                          # OpenTelemetry setup utilities
+|
 ├── api/
 │   └── proto/
 │       ├── user/                      # Proto definitions
 │       │   └── user.proto
 │       └── gen/                       # Generated .pb.go & _grpc.pb.go (ignored by Git)
+|
 ├── cfg/                               # Centralized config files (YAML, JSON, HCL, os env)
 │   └── config.go
+|
 ├── k8s/                               # Kubernetes manifests (Deployment, Service, ConfigMap)
 │   ├── deployment.yaml
 │   ├── service.yaml
 │   └── configmap.yaml
+|
 │── docker-compose.yml
 │── Dockerfile
 ```

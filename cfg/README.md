@@ -7,7 +7,7 @@ package config
 
 //example config
 type Config struct {
-	ServiceA         ServiceAConfig
+	ServiceA      ServiceAConfig
 	ServiceB      ServiceBConfig
 }
 

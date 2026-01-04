@@ -9,10 +9,12 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
@@ -22,6 +24,11 @@ func setupObservability(ctx context.Context, obsCfg *cfg.ObservabilityConfig) (f
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create resource: %w", err)
+	}
+
+	tracerProvider, err := setupTracing(ctx, obsCfg, res)
+	if err != nil {
+		return nil, fmt.Errorf("setup tracing: %w", err)
 	}
 
 	meterProvider, err := setupMetrics(ctx, obsCfg, res)
@@ -37,11 +44,14 @@ func setupObservability(ctx context.Context, obsCfg *cfg.ObservabilityConfig) (f
 
 	shutdown := func(ctx context.Context) error {
 		var errs []error
+		if err := loggerProvider.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("logger provider: %w", err))
+		}
 		if err := meterProvider.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("meter provider: %w", err))
 		}
-		if err := loggerProvider.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("logger provider: %w", err))
+		if err := tracerProvider.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("tracer provider: %w", err))
 		}
 		if len(errs) > 0 {
 			return fmt.Errorf("shutdown errors: %v", errs)
@@ -84,6 +94,35 @@ func setupLogs(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resource.
 		sdklog.WithResource(res),
 	)
 	global.SetLoggerProvider(provider)
+
+	return provider, nil
+}
+
+func setupTracing(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resource.Resource) (*sdktrace.TracerProvider, error) {
+	exporter, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint),
+		otlptracegrpc.WithInsecure(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Simple sampler - adjust based on needs
+	sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.1))
+
+	provider := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sampler),
+	)
+
+	otel.SetTracerProvider(provider)
+
+	// Optional: Set up propagation if you need context across async boundaries
+	// otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+	//     propagation.TraceContext{},
+	//     propagation.Baggage{},
+	// ))
 
 	return provider, nil
 }

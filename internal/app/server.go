@@ -122,10 +122,8 @@ func (s *Server) setupRoutes() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	// Infrastructure endpoints
 	setupInfraRoutes(r)
 
-	// Business logic endpoints
 	authHandler := auth.NewHandler(s.authService)
 	setupAuthRoutes(r, authHandler, s.oauth2Manager)
 

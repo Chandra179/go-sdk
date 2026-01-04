@@ -45,3 +45,12 @@ type B struct {
 const (
 )
 ```
+
+### errors.go
+```go
+//example
+var (
+	ErrGroupNotFound      = errors.New("error1")
+	ErrGroupFull          = errors.New("error2")
+)
+```
