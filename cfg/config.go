@@ -27,6 +27,10 @@ type ObservabilityConfig struct {
 	ServiceName  string
 }
 
+type KafkaConfig struct {
+	Brokers []string
+}
+
 type PostgresConfig struct {
 	Host     string
 	Port     string
@@ -42,6 +46,7 @@ type Config struct {
 	Postgres      PostgresConfig
 	OAuth2        Oauth2Config
 	Observability ObservabilityConfig
+	Kafka         KafkaConfig
 }
 
 func Load() (*Config, error) {
@@ -86,6 +91,12 @@ func Load() (*Config, error) {
 	otlpEndpoint := mustEnv("OTEL_EXPORTER_OTLP_ENDPOINT", &errs)
 	serviceName := mustEnv("OTEL_SERVICE_NAME", &errs)
 
+	// ==========
+	// Kafka
+	// ==========
+	kafkaBrokersStr := getEnvOrDefault("KAFKA_BROKERS", "localhost:9092")
+	kafkaBrokers := []string{kafkaBrokersStr}
+
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -116,6 +127,9 @@ func Load() (*Config, error) {
 			Password: pgPassword,
 			DBName:   pgDB,
 			SSLMode:  pgSSL,
+		},
+		Kafka: KafkaConfig{
+			Brokers: kafkaBrokers,
 		},
 	}, nil
 }

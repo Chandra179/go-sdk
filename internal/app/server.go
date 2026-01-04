@@ -7,9 +7,11 @@ import (
 
 	"gosdk/cfg"
 	"gosdk/internal/service/auth"
+	"gosdk/internal/service/messagebroker"
 	"gosdk/internal/service/session"
 	"gosdk/pkg/cache"
 	"gosdk/pkg/db"
+	"gosdk/pkg/kafka"
 	"gosdk/pkg/logger"
 	"gosdk/pkg/oauth2"
 
@@ -18,15 +20,18 @@ import (
 
 // Server holds all application dependencies
 type Server struct {
-	config        *cfg.Config
-	router        *gin.Engine
-	logger        *logger.AppLogger
-	db            *db.SQLClient
-	cache         cache.Cache
-	sessionStore  session.Client
-	oauth2Manager *oauth2.Manager
-	authService   *auth.Service
-	shutdown      func(context.Context) error
+	config            *cfg.Config
+	router            *gin.Engine
+	logger            *logger.AppLogger
+	db                *db.SQLClient
+	cache             cache.Cache
+	sessionStore      session.Client
+	oauth2Manager     *oauth2.Manager
+	authService       *auth.Service
+	kafkaClient       kafka.Client
+	messageBroker     *messagebroker.Service
+	messageBrokerAuth *messagebroker.Handler
+	shutdown          func(context.Context) error
 }
 
 // NewServer creates and initializes a new server instance
@@ -56,6 +61,10 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 
 	if err := s.initOAuth2(ctx); err != nil {
 		return nil, fmt.Errorf("oauth2 init: %w", err)
+	}
+
+	if err := s.initKafka(); err != nil {
+		return nil, fmt.Errorf("kafka init: %w", err)
 	}
 
 	s.initServices()
@@ -100,6 +109,13 @@ func (s *Server) initOAuth2(ctx context.Context) error {
 	return nil
 }
 
+func (s *Server) initKafka() error {
+	s.kafkaClient = kafka.NewClient(s.config.Kafka.Brokers)
+	s.messageBroker = messagebroker.NewService(s.kafkaClient)
+	s.messageBrokerAuth = messagebroker.NewHandler(s.messageBroker)
+	return nil
+}
+
 func (s *Server) initServices() {
 	s.authService = auth.NewService(
 		s.oauth2Manager,
@@ -127,6 +143,8 @@ func (s *Server) setupRoutes() {
 	authHandler := auth.NewHandler(s.authService)
 	setupAuthRoutes(r, authHandler, s.oauth2Manager)
 
+	setupMessageBrokerRoutes(r, s.messageBrokerAuth)
+
 	s.router = r
 }
 
@@ -138,6 +156,11 @@ func (s *Server) Run(addr string) error {
 
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.kafkaClient != nil {
+		if err := s.kafkaClient.Close(); err != nil {
+			return fmt.Errorf("kafka shutdown: %w", err)
+		}
+	}
 	if s.shutdown != nil {
 		if err := s.shutdown(ctx); err != nil {
 			return fmt.Errorf("observability shutdown: %w", err)
