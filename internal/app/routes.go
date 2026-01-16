@@ -2,7 +2,7 @@ package app
 
 import (
 	"gosdk/internal/service/auth"
-	"gosdk/internal/service/messagebroker"
+	"gosdk/internal/service/event"
 	"gosdk/pkg/oauth2"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +26,7 @@ func setupAuthRoutes(r *gin.Engine, handler *auth.Handler, oauth2mgr *oauth2.Man
 	}
 }
 
-func setupMessageBrokerRoutes(r *gin.Engine, handler *messagebroker.Handler) {
+func setupMessageBrokerRoutes(r *gin.Engine, handler *event.Handler) {
 	mb := r.Group("/messages")
 	{
 		mb.POST("/publish", handler.PublishHandler())

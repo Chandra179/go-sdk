@@ -1,8 +1,7 @@
-package messagebroker
+package event
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -82,15 +81,5 @@ func (s *Service) Unsubscribe(subscriptionID string) error {
 		delete(s.consumers, subscriptionID)
 	}
 
-	return nil
-}
-
-func (s *Service) ProcessMessage(msg kafka.Message) error {
-	var data map[string]interface{}
-	if err := json.Unmarshal(msg.Value, &data); err != nil {
-		return fmt.Errorf("failed to unmarshal message: %w", err)
-	}
-
-	fmt.Printf("Processing message: %+v\n", data)
 	return nil
 }

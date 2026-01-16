@@ -1,4 +1,4 @@
-package messagebroker
+package event
 
 import (
 	"net/http"

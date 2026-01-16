@@ -1,4 +1,4 @@
-package messagebroker
+package event
 
 type PublishRequest struct {
 	Topic string `json:"topic" binding:"required"`

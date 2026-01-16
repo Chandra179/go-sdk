@@ -7,7 +7,7 @@ import (
 
 	"gosdk/cfg"
 	"gosdk/internal/service/auth"
-	"gosdk/internal/service/messagebroker"
+	"gosdk/internal/service/event"
 	"gosdk/internal/service/session"
 	"gosdk/pkg/cache"
 	"gosdk/pkg/db"
@@ -20,18 +20,18 @@ import (
 
 // Server holds all application dependencies
 type Server struct {
-	config            *cfg.Config
-	router            *gin.Engine
-	logger            *logger.AppLogger
-	db                *db.SQLClient
-	cache             cache.Cache
-	sessionStore      session.Client
-	oauth2Manager     *oauth2.Manager
-	authService       *auth.Service
-	kafkaClient       kafka.Client
-	messageBroker     *messagebroker.Service
-	messageBrokerAuth *messagebroker.Handler
-	shutdown          func(context.Context) error
+	config               *cfg.Config
+	router               *gin.Engine
+	logger               *logger.AppLogger
+	db                   *db.SQLClient
+	cache                cache.Cache
+	sessionStore         session.Client
+	oauth2Manager        *oauth2.Manager
+	authService          *auth.Service
+	kafkaClient          kafka.Client
+	messageBrokerSvc     *event.Service
+	messageBrokerHandler *event.Handler
+	shutdown             func(context.Context) error
 }
 
 // NewServer creates and initializes a new server instance
@@ -63,8 +63,8 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 		return nil, fmt.Errorf("oauth2 init: %w", err)
 	}
 
-	if err := s.initKafka(); err != nil {
-		return nil, fmt.Errorf("kafka init: %w", err)
+	if err := s.initEvent(); err != nil {
+		return nil, fmt.Errorf("event init: %w", err)
 	}
 
 	s.initServices()
@@ -109,10 +109,10 @@ func (s *Server) initOAuth2(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) initKafka() error {
+func (s *Server) initEvent() error {
 	s.kafkaClient = kafka.NewClient(s.config.Kafka.Brokers)
-	s.messageBroker = messagebroker.NewService(s.kafkaClient)
-	s.messageBrokerAuth = messagebroker.NewHandler(s.messageBroker)
+	s.messageBrokerSvc = event.NewService(s.kafkaClient)
+	s.messageBrokerHandler = event.NewHandler(s.messageBrokerSvc)
 	return nil
 }
 
@@ -143,7 +143,7 @@ func (s *Server) setupRoutes() {
 	authHandler := auth.NewHandler(s.authService)
 	setupAuthRoutes(r, authHandler, s.oauth2Manager)
 
-	setupMessageBrokerRoutes(r, s.messageBrokerAuth)
+	setupMessageBrokerRoutes(r, s.messageBrokerHandler)
 
 	s.router = r
 }
