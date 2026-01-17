@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"gosdk/pkg/cache"
+	"gosdk/pkg/db"
 	"gosdk/pkg/kafka"
 	"gosdk/pkg/logger"
 
@@ -64,6 +66,32 @@ func (m *mockCloseableKafka) Producer() (kafka.Producer, error) {
 
 func (m *mockCloseableKafka) Consumer(groupID string) (kafka.Consumer, error) {
 	return &mockConsumer{}, nil
+}
+
+type mockCloseableDB struct {
+	closeCalled bool
+	closeError  error
+}
+
+func (m *mockCloseableDB) Close() error {
+	m.closeCalled = true
+	return m.closeError
+}
+
+func (m *mockCloseableDB) WithTransaction(ctx context.Context, isolation sql.IsolationLevel, fn db.TxFunc) error {
+	return nil
+}
+
+func (m *mockCloseableDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return nil, nil
+}
+
+func (m *mockCloseableDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return nil, nil
+}
+
+func (m *mockCloseableDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return nil
 }
 
 func TestServer_Shutdown_HTTPServer(t *testing.T) {
@@ -154,6 +182,34 @@ func TestServer_Shutdown_Cache(t *testing.T) {
 		err := s.Shutdown(context.Background())
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cache shutdown")
+	})
+}
+
+func TestServer_Shutdown_Database(t *testing.T) {
+	t.Run("closes database connections", func(t *testing.T) {
+		mockDB := &mockCloseableDB{}
+
+		s := &Server{
+			logger: logger.NewLogger("test"),
+			db:     mockDB,
+		}
+
+		err := s.Shutdown(context.Background())
+		assert.NoError(t, err)
+		assert.True(t, mockDB.closeCalled, "DB Close should be called")
+	})
+
+	t.Run("returns error when database close fails", func(t *testing.T) {
+		mockDB := &mockCloseableDB{closeError: errors.New("database error")}
+
+		s := &Server{
+			logger: logger.NewLogger("test"),
+			db:     mockDB,
+		}
+
+		err := s.Shutdown(context.Background())
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database shutdown")
 	})
 }
 

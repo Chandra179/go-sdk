@@ -25,7 +25,7 @@ type Server struct {
 	httpServer           *http.Server
 	router               *gin.Engine
 	logger               *logger.AppLogger
-	db                   *db.SQLClient
+	db                   db.DB
 	cache                cache.Cache
 	sessionStore         session.Client
 	oauth2Manager        *oauth2.Manager
@@ -208,7 +208,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("shutdown errors: %v", errors.Join(errs...))
+		return fmt.Errorf("shutdown errors: %w", errors.Join(errs...))
 	}
 
 	s.logger.Info(ctx, "Shutdown completed successfully")

@@ -14,3 +14,9 @@ type SQLExecutor interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
+
+// DB defines the interface for database operations including cleanup
+type DB interface {
+	SQLExecutor
+	Close() error
+}
