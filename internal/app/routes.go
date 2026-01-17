@@ -11,10 +11,12 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func setupInfraRoutes(r *gin.Engine) {
+func setupInfraRoutes(r *gin.Engine, hc *HealthChecker) {
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	r.GET("/docs", docsHandler)
+	r.GET("/healthz", hc.Liveness)
+	r.GET("/readyz", hc.Readiness)
 }
 
 func setupAuthRoutes(r *gin.Engine, handler *auth.Handler, oauth2mgr *oauth2.Manager) {
