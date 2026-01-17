@@ -34,3 +34,11 @@ func (r *RedisCache) Del(ctx context.Context, key string) error {
 func (r *RedisCache) SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error) {
 	return r.client.SetNX(ctx, key, value, ttl).Result()
 }
+
+func (r *RedisCache) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx).Err()
+}
+
+func (r *RedisCache) Close() error {
+	return r.client.Close()
+}

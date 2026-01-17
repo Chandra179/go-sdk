@@ -241,6 +241,54 @@ func TestRedisCache_ContextCancellation(t *testing.T) {
 	})
 }
 
+func TestRedisCache_Ping(t *testing.T) {
+	mr, cache := setupTestRedis(t)
+	defer mr.Close()
+
+	ctx := context.Background()
+
+	t.Run("successful ping", func(t *testing.T) {
+		err := cache.Ping(ctx)
+		assert.NoError(t, err)
+	})
+
+	t.Run("ping after close returns error", func(t *testing.T) {
+		cache2 := NewRedisCache(mr.Addr()).(*RedisCache)
+		cache2.Close()
+
+		err := cache2.Ping(ctx)
+		assert.Error(t, err)
+	})
+}
+
+func TestRedisCache_Close(t *testing.T) {
+	t.Run("successful close", func(t *testing.T) {
+		mr, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr.Close()
+
+		cache := NewRedisCache(mr.Addr()).(*RedisCache)
+
+		err = cache.Close()
+		assert.NoError(t, err)
+	})
+
+	t.Run("close multiple times", func(t *testing.T) {
+		mr, err := miniredis.Run()
+		require.NoError(t, err)
+		defer mr.Close()
+
+		cache := NewRedisCache(mr.Addr()).(*RedisCache)
+
+		err = cache.Close()
+		assert.NoError(t, err)
+
+		// Close again - redis.Client errors when closing already-closed client
+		err = cache.Close()
+		assert.Error(t, err)
+	})
+}
+
 func TestRedisCache_IntegrationScenario(t *testing.T) {
 	mr, cache := setupTestRedis(t)
 	defer mr.Close()
