@@ -1,0 +1,96 @@
+package app
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"gosdk/pkg/logger"
+
+	"github.com/gin-gonic/gin"
+)
+
+type HealthChecker struct {
+	db     DBChecker
+	cache  CacheChecker
+	kafka  KafkaChecker
+	logger logger.Logger
+}
+
+type DBChecker interface {
+	PingContext(ctx context.Context) error
+	Close() error
+}
+
+type CacheChecker interface {
+	Ping(ctx context.Context) error
+	Close() error
+}
+
+type KafkaChecker interface {
+	Close() error
+}
+
+func NewHealthChecker(db DBChecker, cache CacheChecker, kafka KafkaChecker, logger logger.Logger) *HealthChecker {
+	return &HealthChecker{
+		db:     db,
+		cache:  cache,
+		kafka:  kafka,
+		logger: logger,
+	}
+}
+
+type HealthStatus struct {
+	Status    string            `json:"status"`
+	Timestamp string            `json:"timestamp"`
+	Checks    map[string]string `json:"checks,omitempty"`
+}
+
+func (h *HealthChecker) Liveness(c *gin.Context) {
+	c.JSON(http.StatusOK, HealthStatus{
+		Status:    "ok",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (h *HealthChecker) Readiness(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	checks := make(map[string]string)
+	healthy := true
+
+	if h.db != nil {
+		if err := h.db.PingContext(ctx); err != nil {
+			checks["database"] = "unhealthy: " + err.Error()
+			healthy = false
+		} else {
+			checks["database"] = "healthy"
+		}
+	}
+
+	if h.cache != nil {
+		if err := h.cache.Ping(ctx); err != nil {
+			checks["cache"] = "unhealthy: " + err.Error()
+			healthy = false
+		} else {
+			checks["cache"] = "healthy"
+		}
+	}
+
+	checks["kafka"] = "healthy"
+
+	if healthy {
+		c.JSON(http.StatusOK, HealthStatus{
+			Status:    "ready",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Checks:    checks,
+		})
+	} else {
+		c.JSON(http.StatusServiceUnavailable, HealthStatus{
+			Status:    "not_ready",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Checks:    checks,
+		})
+	}
+}
