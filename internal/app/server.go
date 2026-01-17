@@ -140,7 +140,8 @@ func (s *Server) setupRoutes() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	setupInfraRoutes(r)
+	healthChecker := NewHealthChecker(s.db, s.cache, s.kafkaClient, s.logger)
+	setupInfraRoutes(r, healthChecker)
 
 	authHandler := auth.NewHandler(s.authService)
 	setupAuthRoutes(r, authHandler, s.oauth2Manager)
