@@ -41,12 +41,13 @@ type PostgresConfig struct {
 }
 
 type Config struct {
-	AppEnv        string
-	Redis         RedisConfig
-	Postgres      PostgresConfig
-	OAuth2        Oauth2Config
-	Observability ObservabilityConfig
-	Kafka         KafkaConfig
+	AppEnv          string
+	Redis           RedisConfig
+	Postgres        PostgresConfig
+	OAuth2          Oauth2Config
+	Observability   ObservabilityConfig
+	Kafka           KafkaConfig
+	ShutdownTimeout time.Duration
 }
 
 func Load() (*Config, error) {
@@ -97,6 +98,12 @@ func Load() (*Config, error) {
 	kafkaBrokersStr := getEnvOrDefault("KAFKA_BROKERS", "localhost:9092")
 	kafkaBrokers := []string{kafkaBrokersStr}
 
+	shutdownTimeoutStr := getEnvOrDefault("SHUTDOWN_TIMEOUT", "30s")
+	shutdownTimeout, err := time.ParseDuration(shutdownTimeoutStr)
+	if err != nil {
+		errs = append(errs, errors.New("invalid duration for SHUTDOWN_TIMEOUT: "+shutdownTimeoutStr))
+	}
+
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -131,6 +138,7 @@ func Load() (*Config, error) {
 		Kafka: KafkaConfig{
 			Brokers: kafkaBrokers,
 		},
+		ShutdownTimeout: shutdownTimeout,
 	}, nil
 }
 
