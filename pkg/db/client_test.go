@@ -222,3 +222,23 @@ func TestMockSQLExecutor_QueryRowContext(t *testing.T) {
 		mockDB.AssertExpectations(t)
 	})
 }
+
+func TestSQLClient_Close(t *testing.T) {
+	t.Run("closes database connection successfully", func(t *testing.T) {
+		client, err := NewSQLClient("postgres", "postgres://user:pass@localhost/db?sslmode=disable")
+		if err != nil {
+			t.Skipf("Could not create SQLClient for testing: %v", err)
+		}
+		defer client.Close()
+
+		err = client.Close()
+		assert.NoError(t, err)
+	})
+
+	t.Run("returns nil when db is nil", func(t *testing.T) {
+		client := &SQLClient{db: nil}
+
+		err := client.Close()
+		assert.NoError(t, err)
+	})
+}
