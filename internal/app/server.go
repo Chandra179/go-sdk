@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 
 	"gosdk/cfg"
 	"gosdk/internal/service/auth"
@@ -21,6 +22,7 @@ import (
 // Server holds all application dependencies
 type Server struct {
 	config               *cfg.Config
+	httpServer           *http.Server
 	router               *gin.Engine
 	logger               *logger.AppLogger
 	db                   *db.SQLClient
