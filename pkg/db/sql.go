@@ -54,3 +54,10 @@ func (c *SQLClient) QueryContext(ctx context.Context, query string, args ...any)
 func (c *SQLClient) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return c.db.QueryRowContext(ctx, query, args...)
 }
+
+func (c *SQLClient) Close() error {
+	if c.db != nil {
+		return c.db.Close()
+	}
+	return nil
+}
