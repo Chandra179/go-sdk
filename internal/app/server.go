@@ -194,9 +194,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if closer, ok := s.cache.(interface{ Close() error }); ok {
+	if s.cache != nil {
 		s.logger.Info(ctx, "Closing Redis connections")
-		if err := closer.Close(); err != nil {
+		if err := s.cache.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("cache shutdown: %w", err))
 		}
 	}

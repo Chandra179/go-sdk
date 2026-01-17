@@ -30,8 +30,20 @@ func (m *mockCloseableCache) Close() error {
 	return m.closeError
 }
 
+func (m *mockCloseableCache) Ping(ctx context.Context) error {
+	return nil
+}
+
 type mockCache struct {
 	cache.Cache
+}
+
+func (m *mockCache) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockCache) Close() error {
+	return nil
 }
 
 type mockProducer struct {
@@ -76,6 +88,10 @@ type mockCloseableDB struct {
 func (m *mockCloseableDB) Close() error {
 	m.closeCalled = true
 	return m.closeError
+}
+
+func (m *mockCloseableDB) PingContext(ctx context.Context) error {
+	return nil
 }
 
 func (m *mockCloseableDB) WithTransaction(ctx context.Context, isolation sql.IsolationLevel, fn db.TxFunc) error {
@@ -157,18 +173,6 @@ func TestServer_Shutdown_Cache(t *testing.T) {
 		err := s.Shutdown(context.Background())
 		assert.NoError(t, err)
 		assert.True(t, mockCache.closeCalled, "Cache Close should be called")
-	})
-
-	t.Run("continues when cache has no Close method", func(t *testing.T) {
-		mockCache := &mockCache{}
-
-		s := &Server{
-			logger: logger.NewLogger("test"),
-			cache:  mockCache,
-		}
-
-		err := s.Shutdown(context.Background())
-		assert.NoError(t, err)
 	})
 
 	t.Run("returns error when cache close fails", func(t *testing.T) {
