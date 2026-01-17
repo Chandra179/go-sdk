@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
 	"net/http"
 
 	"gosdk/cfg"
@@ -152,8 +152,19 @@ func (s *Server) setupRoutes() {
 
 // Run starts the HTTP server
 func (s *Server) Run(addr string) error {
-	log.Printf("Server listening on %s", addr)
-	return s.router.Run(addr)
+	s.httpServer = &http.Server{
+		Addr:    addr,
+		Handler: s.router,
+	}
+
+	s.logger.Info(context.Background(), "Server listening", logger.Field{Key: "addr", Value: addr})
+
+	err := s.httpServer.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("server error: %w", err)
+	}
+
+	return nil
 }
 
 // Shutdown gracefully shuts down the server
