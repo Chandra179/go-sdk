@@ -10,4 +10,6 @@ type Cache interface {
 	SetNX(ctx context.Context, key string, value string, ttl time.Duration) (bool, error)
 	Get(ctx context.Context, key string) (string, error)
 	Del(ctx context.Context, key string) error
+	Ping(ctx context.Context) error
+	Close() error
 }

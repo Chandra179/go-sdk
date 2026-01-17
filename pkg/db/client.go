@@ -18,5 +18,6 @@ type SQLExecutor interface {
 // DB defines the interface for database operations including cleanup
 type DB interface {
 	SQLExecutor
+	PingContext(ctx context.Context) error
 	Close() error
 }
