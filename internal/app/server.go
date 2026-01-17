@@ -167,17 +167,50 @@ func (s *Server) Run(addr string) error {
 	return nil
 }
 
-// Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.logger.Info(ctx, "Starting graceful shutdown")
+
+	var errs []error
+
+	if s.httpServer != nil {
+		s.logger.Info(ctx, "Shutting down HTTP server")
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("HTTP server shutdown: %w", err))
+		}
+	}
+
 	if s.kafkaClient != nil {
+		s.logger.Info(ctx, "Closing Kafka connections")
 		if err := s.kafkaClient.Close(); err != nil {
-			return fmt.Errorf("kafka shutdown: %w", err)
+			errs = append(errs, fmt.Errorf("kafka shutdown: %w", err))
 		}
 	}
+
+	if s.db != nil {
+		s.logger.Info(ctx, "Closing database connections")
+		if err := s.db.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("database shutdown: %w", err))
+		}
+	}
+
+	if closer, ok := s.cache.(interface{ Close() error }); ok {
+		s.logger.Info(ctx, "Closing Redis connections")
+		if err := closer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("cache shutdown: %w", err))
+		}
+	}
+
 	if s.shutdown != nil {
+		s.logger.Info(ctx, "Shutting down observability")
 		if err := s.shutdown(ctx); err != nil {
-			return fmt.Errorf("observability shutdown: %w", err)
+			errs = append(errs, fmt.Errorf("observability shutdown: %w", err))
 		}
 	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("shutdown errors: %v", errors.Join(errs...))
+	}
+
+	s.logger.Info(ctx, "Shutdown completed successfully")
 	return nil
 }
