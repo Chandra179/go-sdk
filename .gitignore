@@ -35,3 +35,4 @@ vendor/
 /api/proto/gen/
 ./api/proto/gen/
 api/proto/gen/
+.opencode
