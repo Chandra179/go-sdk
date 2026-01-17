@@ -26,3 +26,16 @@ docker-push:
 .PHONY: add-secrets
 add-secrets:
 	./add-secrets.sh
+
+lint:
+	golangci-lint run
+
+test:
+	go test ./... -race -cover
+
+test-coverage:
+	go test ./... -race -coverprofile=coverage.out
+	go tool cover -html=coverage.out -o coverage.html
+
+install-hooks:
+	./scripts/install-hooks.sh
