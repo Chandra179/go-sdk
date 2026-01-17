@@ -55,6 +55,13 @@ func (c *SQLClient) QueryRowContext(ctx context.Context, query string, args ...a
 	return c.db.QueryRowContext(ctx, query, args...)
 }
 
+func (c *SQLClient) PingContext(ctx context.Context) error {
+	if c.db != nil {
+		return c.db.PingContext(ctx)
+	}
+	return fmt.Errorf("database connection is nil")
+}
+
 func (c *SQLClient) Close() error {
 	if c.db != nil {
 		return c.db.Close()
