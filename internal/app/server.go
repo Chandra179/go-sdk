@@ -143,7 +143,7 @@ func (s *Server) setupRoutes() {
 	healthChecker := NewHealthChecker(s.db, s.cache, s.kafkaClient, s.logger)
 	setupInfraRoutes(r, healthChecker)
 
-	authHandler := auth.NewHandler(s.authService)
+	authHandler := auth.NewHandler(s.authService, s.config)
 	setupAuthRoutes(r, authHandler, s.oauth2Manager)
 
 	setupMessageBrokerRoutes(r, s.messageBrokerHandler)

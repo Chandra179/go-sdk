@@ -1,6 +1,9 @@
 package kafka
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 type KafkaClient struct {
 	brokers   []string
@@ -59,4 +62,17 @@ func (c *KafkaClient) Close() error {
 	}
 
 	return err
+}
+
+func (c *KafkaClient) Ping(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, consumer := range c.consumers {
+		if err := consumer.Ping(ctx); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

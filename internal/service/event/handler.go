@@ -3,6 +3,8 @@ package event
 import (
 	"net/http"
 
+	"gosdk/pkg/validator"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,9 +22,18 @@ func (h *Handler) PublishHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req PublishRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validator.ErrInvalidInput.Error()})
+			return
+		}
+
+		if err := validator.ValidateTopic(req.Topic); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+
+		req.Topic = validator.SanitizeString(req.Topic)
+		req.Key = validator.SanitizeString(req.Key)
+		req.Value = validator.SanitizeString(req.Value)
 
 		if err := h.service.PublishMessage(c.Request.Context(), req.Topic, req.Key, req.Value, nil); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -37,9 +48,21 @@ func (h *Handler) SubscribeHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SubscribeRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validator.ErrInvalidInput.Error()})
+			return
+		}
+
+		if err := validator.ValidateTopic(req.Topic); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if err := validator.ValidateGroupID(req.GroupID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		req.Topic = validator.SanitizeString(req.Topic)
+		req.GroupID = validator.SanitizeString(req.GroupID)
 
 		subscriptionID, err := h.service.SubscribeToTopic(c.Request.Context(), req.Topic, req.GroupID)
 		if err != nil {

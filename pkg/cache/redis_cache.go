@@ -2,9 +2,15 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+)
+
+var (
+	ErrCacheMiss    = errors.New("cache miss")
+	ErrCacheTimeout = errors.New("cache operation timeout")
 )
 
 type RedisCache struct {

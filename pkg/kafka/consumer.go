@@ -78,3 +78,17 @@ func (c *KafkaConsumer) Close() error {
 	}
 	return nil
 }
+
+func (c *KafkaConsumer) Ping(ctx context.Context) error {
+	if c.reader == nil {
+		return ErrKafkaConnection
+	}
+
+	stats := c.reader.Stats()
+
+	if stats.ClientID == "" {
+		return ErrKafkaConnection
+	}
+
+	return nil
+}

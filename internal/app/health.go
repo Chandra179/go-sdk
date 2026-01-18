@@ -28,6 +28,7 @@ type CacheChecker interface {
 }
 
 type KafkaChecker interface {
+	Ping(ctx context.Context) error
 	Close() error
 }
 
@@ -78,7 +79,14 @@ func (h *HealthChecker) Readiness(c *gin.Context) {
 		}
 	}
 
-	checks["kafka"] = "healthy"
+	if h.kafka != nil {
+		if err := h.kafka.Ping(ctx); err != nil {
+			checks["kafka"] = "unhealthy: " + err.Error()
+			healthy = false
+		} else {
+			checks["kafka"] = "healthy"
+		}
+	}
 
 	if healthy {
 		c.JSON(http.StatusOK, HealthStatus{

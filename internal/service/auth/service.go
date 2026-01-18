@@ -40,7 +40,7 @@ func (s *Service) HandleCallback(ctx context.Context, provider string,
 	userInfo *oauth2.UserInfo, tokenSet *oauth2.TokenSet) (*oauth2.CallbackInfo, error) {
 	internalUserID, err := s.GetOrCreateUser(ctx, provider, userInfo.ID, userInfo.Email, userInfo.Name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve user: %w", err)
+		return nil, fmt.Errorf("failed to resolve user: %w", ErrUserNotFound)
 	}
 
 	sessionData := &SessionData{
@@ -51,12 +51,12 @@ func (s *Service) HandleCallback(ctx context.Context, provider string,
 
 	data, err := json.Marshal(sessionData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal session data: %w", err)
+		return nil, fmt.Errorf("failed to marshal session data: %w", errors.New("invalid input"))
 	}
 
 	sess, err := s.sessionStore.Create(data, SessionTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
+		return nil, fmt.Errorf("failed to create session: %w", ErrSessionNotFound)
 	}
 
 	return &oauth2.CallbackInfo{
@@ -76,7 +76,7 @@ func (s *Service) GetSessionData(sessionID string) (*SessionData, error) {
 
 	var sessionData SessionData
 	if err := json.Unmarshal(sess.Data, &sessionData); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal session data: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal session data: %w", errors.New("invalid input"))
 	}
 
 	return &sessionData, nil
@@ -90,7 +90,7 @@ func (s *Service) RefreshToken(ctx context.Context, sessionID string) error {
 	}
 
 	if sessionData.TokenSet.RefreshToken == "" {
-		return errors.New("no refresh token available")
+		return ErrNoRefreshToken
 	}
 
 	provider, err := s.oauth2Manager.GetProvider(sessionData.Provider)
@@ -100,19 +100,19 @@ func (s *Service) RefreshToken(ctx context.Context, sessionID string) error {
 
 	googleProvider, ok := provider.(*oauth2.GoogleOIDCProvider)
 	if !ok {
-		return errors.New("provider does not support token refresh")
+		return ErrProviderNotFound
 	}
 
 	newTokenSet, err := googleProvider.RefreshToken(ctx, sessionData.TokenSet.RefreshToken)
 	if err != nil {
 		s.sessionStore.Delete(sessionID)
-		return fmt.Errorf("failed to refresh token (session deleted): %w", err)
+		return fmt.Errorf("failed to refresh token (session deleted): %w", ErrInvalidToken)
 	}
 
 	sessionData.TokenSet = newTokenSet
 	data, err := json.Marshal(sessionData)
 	if err != nil {
-		return fmt.Errorf("failed to marshal session data: %w", err)
+		return fmt.Errorf("failed to marshal session data: %w", errors.New("invalid input"))
 	}
 
 	return s.sessionStore.Update(sessionID, data)
@@ -142,7 +142,7 @@ func (s *Service) GetOrCreateUser(ctx context.Context, provider, subjectID, emai
 	}
 
 	if !errors.Is(err, ErrUserNotFound) {
-		return "", fmt.Errorf("failed to check user: %w", err)
+		return "", fmt.Errorf("failed to check user: %w", db.ErrDatabaseTimeout)
 	}
 
 	userID := uuid.NewString()
@@ -154,7 +154,7 @@ func (s *Service) GetOrCreateUser(ctx context.Context, provider, subjectID, emai
 	`
 	_, err = s.db.ExecContext(ctx, insertUserQuery, userID, provider, subjectID, email, fullName, now, now)
 	if err != nil {
-		return "", fmt.Errorf("failed to insert user: %w", err)
+		return "", fmt.Errorf("failed to insert user: %w", db.ErrDatabaseTimeout)
 	}
 
 	return userID, nil
@@ -183,7 +183,7 @@ func (s *Service) getUserByProviderAndSubject(ctx context.Context, provider, sub
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to query user: %w", err)
+		return nil, fmt.Errorf("failed to query user: %w", db.ErrDatabaseTimeout)
 	}
 
 	return &user, nil

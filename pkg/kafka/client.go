@@ -17,5 +17,6 @@ type Consumer interface {
 type Client interface {
 	Producer() (Producer, error)
 	Consumer(groupID string) (Consumer, error)
+	Ping(ctx context.Context) error
 	Close() error
 }

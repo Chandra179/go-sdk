@@ -11,6 +11,8 @@ import (
 var (
 	ErrProviderNotFound = errors.New("provider not found")
 	ErrInvalidState     = errors.New("invalid state")
+	ErrOAuth2State      = errors.New("invalid oauth2 state")
+	ErrOAuth2Callback   = errors.New("oauth2 callback error")
 )
 
 type CallbackInfo struct {

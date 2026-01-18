@@ -3,6 +3,12 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
+)
+
+var (
+	ErrDatabaseTimeout = errors.New("database operation timeout")
+	ErrDuplicateKey    = errors.New("duplicate key")
 )
 
 type TxFunc func(ctx context.Context, tx *sql.Tx) error

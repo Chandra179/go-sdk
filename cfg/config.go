@@ -65,6 +65,9 @@ func Load() (*Config, error) {
 	googleClientSecret := mustEnv("GOOGLE_CLIENT_SECRET", &errs)
 	googleRedirectUrl := mustEnv("GOOGLE_REDIRECT_URL", &errs)
 	jwtSecret := mustEnv("JWT_SECRET", &errs)
+	if len(jwtSecret) < 32 {
+		errs = append(errs, errors.New("JWT_SECRET must be at least 32 characters"))
+	}
 	jwtExpirationStr := mustEnv("JWT_EXPIRATION", &errs)
 	jwtExpiration, err := time.ParseDuration(jwtExpirationStr)
 	if err != nil {

@@ -36,6 +36,3 @@ test:
 test-coverage:
 	go test ./... -race -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
-
-install-hooks:
-	./scripts/install-hooks.sh

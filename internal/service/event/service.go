@@ -26,7 +26,7 @@ func NewService(kafkaClient kafka.Client) *Service {
 func (s *Service) PublishMessage(ctx context.Context, topic, key, value string, headers map[string]string) error {
 	producer, err := s.kafkaClient.Producer()
 	if err != nil {
-		return fmt.Errorf("failed to get producer: %w", err)
+		return fmt.Errorf("failed to get producer: %w", kafka.ErrKafkaConnection)
 	}
 
 	message := kafka.Message{
@@ -48,7 +48,7 @@ func (s *Service) SubscribeToTopic(ctx context.Context, topic, groupID string) (
 	if _, exists := s.consumers[subscriptionID]; !exists {
 		consumer, err := s.kafkaClient.Consumer(groupID)
 		if err != nil {
-			return "", fmt.Errorf("failed to get consumer: %w", err)
+			return "", fmt.Errorf("failed to get consumer: %w", kafka.ErrKafkaConnection)
 		}
 
 		s.consumers[subscriptionID] = consumer.(*kafka.KafkaConsumer)
@@ -64,7 +64,7 @@ func (s *Service) SubscribeToTopic(ctx context.Context, topic, groupID string) (
 
 	consumer := s.consumers[subscriptionID]
 	if err := consumer.Subscribe(ctx, []string{topic}, handler); err != nil {
-		return "", fmt.Errorf("failed to subscribe: %w", err)
+		return "", fmt.Errorf("failed to subscribe: %w", kafka.ErrKafkaPublish)
 	}
 
 	return subscriptionID, nil
@@ -76,7 +76,7 @@ func (s *Service) Unsubscribe(subscriptionID string) error {
 
 	if consumer, exists := s.consumers[subscriptionID]; exists {
 		if err := consumer.Close(); err != nil {
-			return fmt.Errorf("failed to close consumer: %w", err)
+			return fmt.Errorf("failed to close consumer: %w", kafka.ErrKafkaConnection)
 		}
 		delete(s.consumers, subscriptionID)
 	}

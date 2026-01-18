@@ -80,6 +80,10 @@ func (m *mockCloseableKafka) Consumer(groupID string) (kafka.Consumer, error) {
 	return &mockConsumer{}, nil
 }
 
+func (m *mockCloseableKafka) Ping(ctx context.Context) error {
+	return nil
+}
+
 type mockCloseableDB struct {
 	closeCalled bool
 	closeError  error

@@ -3,16 +3,21 @@ package auth
 import (
 	"net/http"
 
+	"gosdk/cfg"
+	"gosdk/pkg/validator"
+
 	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
 	service *Service
+	config  *cfg.Config
 }
 
-func NewHandler(service *Service) *Handler {
+func NewHandler(service *Service, config *cfg.Config) *Handler {
 	return &Handler{
 		service: service,
+		config:  config,
 	}
 }
 
@@ -31,7 +36,12 @@ func (h *Handler) LoginHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "provider is required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": validator.ErrInvalidInput.Error()})
+			return
+		}
+
+		if err := validator.ValidateProvider(req.Provider); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -66,7 +76,7 @@ func (h *Handler) LogoutHandler() gin.HandlerFunc {
 			-1,
 			"/",
 			"",
-			true,
+			h.config.AppEnv != "development",
 			true,
 		)
 
@@ -88,7 +98,7 @@ func (h *Handler) AuthMiddleware() gin.HandlerFunc {
 		sessionData, err := h.service.ValidateAndRefreshSession(c.Request.Context(), sessionID)
 		if err != nil {
 			// Clear cookie and return 401
-			c.SetCookie(SessionCookieName, "", -1, "/", "", true, true)
+			c.SetCookie(SessionCookieName, "", -1, "/", "", h.config.AppEnv != "development", true)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "session expired, please re-login"})
 			c.Abort()
 			return
