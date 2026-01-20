@@ -26,16 +26,6 @@ func main() {
 	}
 	defer server.Shutdown(ctx)
 
-	if err := server.SetupGRPCServer(); err != nil {
-		log.Fatalf("Failed to setup gRPC server: %v", err)
-	}
-
-	if config.Gateway.Enabled {
-		if err := server.SetupGateway(ctx); err != nil {
-			log.Fatalf("Failed to setup gateway: %v", err)
-		}
-	}
-
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 

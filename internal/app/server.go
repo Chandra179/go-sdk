@@ -5,9 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
-
-	"golang.org/x/sync/errgroup"
 
 	"gosdk/cfg"
 	"gosdk/internal/service/auth"
@@ -20,8 +17,6 @@ import (
 	"gosdk/pkg/oauth2"
 
 	"github.com/gin-gonic/gin"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 // Server holds all application dependencies
@@ -39,10 +34,7 @@ type Server struct {
 	messageBrokerSvc     *event.Service
 	messageBrokerHandler *event.Handler
 	shutdown             func(context.Context) error
-	grpcServer           *grpc.Server
-	healthSrv            *grpc_health_v1.Server
 	httpShutdown         func(context.Context) error
-	grpcShutdown         func(context.Context) error
 }
 
 // NewServer creates and initializes a new server instance
@@ -115,24 +107,12 @@ func (s *Server) setupHTTPServer() {
 func (s *Server) Run() error {
 	s.setupHTTPServer()
 
-	g, ctx := errgroup.WithContext(context.Background())
-
-	g.Go(func() error {
-		s.logger.Info(context.Background(), "HTTP server listening", logger.Field{Key: "addr", Value: ":" + s.config.HTTPServer.Port})
-		err := s.httpServer.ListenAndServe()
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("HTTP server: %w", err)
-		}
-		return nil
-	})
-
-	if s.grpcServer != nil {
-		g.Go(func() error {
-			return nil
-		})
+	s.logger.Info(context.Background(), "HTTP server listening", logger.Field{Key: "addr", Value: ":" + s.config.HTTPServer.Port})
+	err := s.httpServer.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("HTTP server: %w", err)
 	}
-
-	return g.Wait()
+	return nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
@@ -143,12 +123,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.httpShutdown != nil {
 		if err := s.httpShutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("HTTP server shutdown: %w", err))
-		}
-	}
-
-	if s.grpcShutdown != nil {
-		if err := s.grpcShutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("gRPC server shutdown: %w", err))
 		}
 	}
 
