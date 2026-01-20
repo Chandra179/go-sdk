@@ -13,9 +13,6 @@ run:
 swag:
 	swag init -g /cmd/myapp/main.go -o api
 
-proto-gen:
-	cd api && make gen proto/user/user.proto
-
 IMAGE ?= my-app
 VERSION ?= latest
 DOCKER_USER ?= c1789
@@ -25,13 +22,6 @@ docker-push:
 	docker build -t $(IMAGE):$(VERSION) .
 	docker tag $(IMAGE):$(VERSION) $(DOCKER_USER)/$(IMAGE):$(VERSION)
 	docker push $(DOCKER_USER)/$(IMAGE):$(VERSION)
-
-.PHONY: add-secrets
-add-secrets:
-	./add-secrets.sh
-
-lint:
-	golangci-lint run
 
 test:
 	go test ./... -race -cover

@@ -4,44 +4,63 @@ This project is a Go template demonstrating reusable packages and runnable examp
 
 ## Project Structure
 ```
-├── cmd/                               # Runnable application
-│   ├── myapp/                         # calling server.go
-│       └── main.go
-|
-├── internal/                          # internal services
-│   ├── app/                           
-│	 │   ├── server.go                  # service init, dependency injection, etc..
-│   └── auth/                          # example: package name auth
-│	     ├── handler.go                 # endpoint handler using gin
-│	     ├── service.go                 # service logic (business logic, query, etc..)
-│	     ├── types.go                   # struct, const, etc..
-|
-├── db/                               
-│   ├── migrations/                    # migration files, .sql
-|
+├── cmd/                               # Runnable applications
+│   └── myapp/                         # Example application
+│       └── main.go                    # Entry point
+│
+├── internal/                          # Internal services (not importable externally)
+│   ├── app/                           # Application initialization
+│   │   └── server.go                  # Server setup, dependency injection
+│   └── service/                       # Domain services
+│       ├── auth/                      # Authentication service
+│       │   ├── handler.go             # HTTP handlers (Gin)
+│       │   ├── service.go             # Business logic
+│       │   └── types.go               # DTOs and models
+│       ├── event/                     # Event service
+│       └── session/                   # Session service
+│
 ├── pkg/                               # Reusable library packages
-│   ├── cache/                         # Cache interfaces, Redis helpers, wrappers
+│   ├── cache/                         # Cache interfaces, Redis helpers
 │   ├── db/                            # Database connectors, helpers
+│   ├── idgen/                         # ID generation utilities
+│   ├── kafka/                         # Kafka client and helpers
 │   ├── logger/                        # Zerolog wrapper & helpers
 │   ├── oauth2/                        # OAuth2 manager & token helpers
-│   └── otel/                          # OpenTelemetry setup utilities
-|
-├── api/
-│   └── proto/
-│       ├── user/                      # Proto definitions
-│       │   └── user.proto
-│       └── gen/                       # Generated .pb.go & _grpc.pb.go (ignored by Git)
-|
-├── cfg/                               # Centralized config files (YAML, JSON, HCL, os env)
+│   ├── passkey/                       # Passkey/WebAuthn utilities
+│   ├── testutil/                      # Testing utilities
+│   └── validator/                     # Input validation utilities
+│
+├── db/                                # Database-related files
+│   └── migrations/                    # SQL migration files
+│
+├── api/                               # API specifications
+│   ├── docs.go                        # Swagger documentation
+│   ├── swagger.yaml                   # OpenAPI spec
+│   └── swagger.json                   # OpenAPI spec (JSON)
+│
+├── cfg/                               # Centralized config loading
 │   └── config.go
-|
-├── k8s/                               # Kubernetes manifests (Deployment, Service, ConfigMap)
+│
+├── observability/                     # Monitoring & tracing configs
+│   ├── config.alloy                   # Alloy OTel config
+│   ├── loki.yaml                      # Loki logging config
+│   ├── prometheus.yml                 # Prometheus metrics config
+│   └── grafana-datasources.yaml       # Grafana datasources
+│
+├── k8s/                               # Kubernetes manifests
 │   ├── deployment.yaml
 │   ├── service.yaml
 │   └── configmap.yaml
-|
-│── docker-compose.yml
-│── Dockerfile
+│
+├── AGENTS.md                          # Agent coding guidelines
+├── IMPROVEMENTS.md                    # Technical debt & improvements
+├── Makefile                           # Build commands
+├── docker-compose.yml                 # Local services
+├── Dockerfile                         # Container image
+├── .golangci.yml                      # Linting configuration
+├── add-secrets.sh                     # Secrets management helper
+├── test.http                          # API testing file
+└── .env.example                       # Environment variables template
 ```
 
 ## Key Points
