@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -118,11 +119,10 @@ func setupTracing(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resour
 
 	otel.SetTracerProvider(provider)
 
-	// Optional: Set up propagation if you need context across async boundaries
-	// otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-	//     propagation.TraceContext{},
-	//     propagation.Baggage{},
-	// ))
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
 
 	return provider, nil
 }

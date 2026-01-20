@@ -13,6 +13,9 @@ run:
 swag:
 	swag init -g /cmd/myapp/main.go -o api
 
+proto-gen:
+	cd api && make gen proto/user/user.proto
+
 IMAGE ?= my-app
 VERSION ?= latest
 DOCKER_USER ?= c1789

@@ -1,28 +1,43 @@
 # App
-do service initialization and service dependency injection here. 
+do service initialization and service dependency injection here.
 function must be depends on the interface not the concrete implementation for some service
 
 ## server.go
 ```go
 package app
 import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+
+	"gosdk/cfg"
 	"gosdk/internal/service/auth"
+	"gosdk/internal/service/event"
+	"gosdk/internal/service/session"
 	"gosdk/pkg/cache"
 	"gosdk/pkg/db"
+	"gosdk/pkg/kafka"
 	"gosdk/pkg/logger"
 	"gosdk/pkg/oauth2"
-	"gosdk/pkg/session"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Server struct {
-	config        *cfg.Config
-	router        *gin.Engine
-	logger        *logger.AppLogger
-	db            *db.SQLClient
-	cache         cache.Cache
-	sessionStore  session.Store
-	oauth2Manager *oauth2.Manager
-	authService   *auth.Service
+	config               *cfg.Config
+	httpServer           *http.Server
+	router               *gin.Engine
+	logger               *logger.AppLogger
+	db                   db.DB
+	cache                cache.Cache
+	sessionStore         session.Client
+	oauth2Manager        *oauth2.Manager
+	authService          *auth.Service
+	kafkaClient          kafka.Client
+	messageBrokerSvc     *event.Service
+	messageBrokerHandler *event.Handler
+	shutdown             func(context.Context) error
 }
 
 func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
@@ -30,13 +45,14 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 		config: config,
 	}
 
-    shutdown, err := setupObservability(ctx, &config.Observability)
+	shutdown, err := setupObservability(ctx, &config.Observability)
 	if err != nil {
 		return nil, fmt.Errorf("observability setup: %w", err)
 	}
 	s.shutdown = shutdown
 
 	s.logger = logger.NewLogger(config.AppEnv)
+	s.logger.Info(ctx, "Initializing server...")
 
 	if err := s.initDatabase(); err != nil {
 		return nil, fmt.Errorf("database init: %w", err)
@@ -46,15 +62,20 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 		return nil, fmt.Errorf("cache init: %w", err)
 	}
 
-	s.sessionStore = session.NewInMemoryStore()
+	s.sessionStore = session.NewRedisStore(s.cache)
 
 	if err := s.initOAuth2(ctx); err != nil {
 		return nil, fmt.Errorf("oauth2 init: %w", err)
 	}
 
+	if err := s.initEvent(); err != nil {
+		return nil, fmt.Errorf("event init: %w", err)
+	}
+
 	s.initServices()
 	s.setupRoutes()
 
+	s.logger.Info(ctx, "Server initialized successfully")
 	return s, nil
 }
 
@@ -74,21 +95,34 @@ func (s *Server) initServices() {
 	) (*oauth2.CallbackInfo, error) {
 		return s.authService.HandleCallback(ctx, provider, userInfo, tokenSet)
 	}
-    s.serviceA = a.NewService()
-    s.serviceB = b.NewService()
 }
 ```
 
 ## routes.go
 ```go
-// register the internal service endpoint here.
-func setupInfraRoutes(r *gin.Engine) {
+func setupInfraRoutes(r *gin.Engine, hc *HealthChecker) {
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	r.GET("/docs", docsHandler)
+	r.GET("/healthz", hc.Liveness)
+	r.GET("/readyz", hc.Readiness)
 }
-func setupABCRoutes(r *gin.Engine) {
+
+func setupAuthRoutes(r *gin.Engine, handler *auth.Handler, oauth2mgr *oauth2.Manager) {
+	auth := r.Group("/auth")
+	{
+		auth.POST("/login", handler.LoginHandler())
+		auth.POST("/logout", handler.LogoutHandler())
+		auth.GET("/callback/google", oauth2.GoogleCallbackHandler(oauth2mgr))
+	}
 }
-func setupDEFRoutes(r *gin.Engine) {
+
+func setupMessageBrokerRoutes(r *gin.Engine, handler *event.Handler) {
+	mb := r.Group("/messages")
+	{
+		mb.POST("/publish", handler.PublishHandler())
+		mb.POST("/subscribe", handler.SubscribeHandler())
+		mb.DELETE("/subscribe/:id", handler.UnsubscribeHandler())
+	}
 }
 ```

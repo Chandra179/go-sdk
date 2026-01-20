@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"gosdk/cfg"
 	"gosdk/internal/service/auth"
@@ -17,6 +20,8 @@ import (
 	"gosdk/pkg/oauth2"
 
 	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 // Server holds all application dependencies
@@ -34,6 +39,10 @@ type Server struct {
 	messageBrokerSvc     *event.Service
 	messageBrokerHandler *event.Handler
 	shutdown             func(context.Context) error
+	grpcServer           *grpc.Server
+	healthSrv            *grpc_health_v1.Server
+	httpShutdown         func(context.Context) error
+	grpcShutdown         func(context.Context) error
 }
 
 // NewServer creates and initializes a new server instance
@@ -59,8 +68,6 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 		return nil, fmt.Errorf("cache init: %w", err)
 	}
 
-	s.sessionStore = session.NewRedisStore(s.cache)
-
 	if err := s.initOAuth2(ctx); err != nil {
 		return nil, fmt.Errorf("oauth2 init: %w", err)
 	}
@@ -74,66 +81,6 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 
 	s.logger.Info(ctx, "Server initialized successfully")
 	return s, nil
-}
-
-func (s *Server) initDatabase() error {
-	pg := s.config.Postgres
-	dsn := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
-		pg.User, pg.Password, pg.Host, pg.Port, pg.DBName, pg.SSLMode,
-	)
-
-	dbClient, err := db.NewSQLClient("postgres", dsn)
-	if err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	s.db = dbClient
-
-	if err := runMigrations(dsn); err != nil {
-		return fmt.Errorf("migrations: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Server) initCache() error {
-	addr := s.config.Redis.Host + ":" + s.config.Redis.Port
-	s.cache = cache.NewRedisCache(addr)
-	return nil
-}
-
-func (s *Server) initOAuth2(ctx context.Context) error {
-	mgr, err := oauth2.NewManager(ctx, &s.config.OAuth2)
-	if err != nil {
-		return err
-	}
-	s.oauth2Manager = mgr
-	return nil
-}
-
-func (s *Server) initEvent() error {
-	s.kafkaClient = kafka.NewClient(s.config.Kafka.Brokers)
-	s.messageBrokerSvc = event.NewService(s.kafkaClient)
-	s.messageBrokerHandler = event.NewHandler(s.messageBrokerSvc)
-	return nil
-}
-
-func (s *Server) initServices() {
-	s.authService = auth.NewService(
-		s.oauth2Manager,
-		s.sessionStore,
-		s.db,
-	)
-
-	// Wire up OAuth2 callback
-	s.oauth2Manager.CallbackHandler = func(
-		ctx context.Context,
-		provider string,
-		userInfo *oauth2.UserInfo,
-		tokenSet *oauth2.TokenSet,
-	) (*oauth2.CallbackInfo, error) {
-		return s.authService.HandleCallback(ctx, provider, userInfo, tokenSet)
-	}
 }
 
 func (s *Server) setupRoutes() {
@@ -151,21 +98,41 @@ func (s *Server) setupRoutes() {
 	s.router = r
 }
 
-// Run starts the HTTP server
-func (s *Server) Run(addr string) error {
+func (s *Server) setupHTTPServer() {
 	s.httpServer = &http.Server{
-		Addr:    addr,
-		Handler: s.router,
+		Addr:         ":" + s.config.HTTPServer.Port,
+		Handler:      s.router,
+		ReadTimeout:  s.config.HTTPServer.ReadTimeout,
+		WriteTimeout: s.config.HTTPServer.WriteTimeout,
 	}
 
-	s.logger.Info(context.Background(), "Server listening", logger.Field{Key: "addr", Value: addr})
+	s.httpShutdown = func(ctx context.Context) error {
+		s.logger.Info(ctx, "Shutting down HTTP server")
+		return s.httpServer.Shutdown(ctx)
+	}
+}
 
-	err := s.httpServer.ListenAndServe()
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("server error: %w", err)
+func (s *Server) Run() error {
+	s.setupHTTPServer()
+
+	g, ctx := errgroup.WithContext(context.Background())
+
+	g.Go(func() error {
+		s.logger.Info(context.Background(), "HTTP server listening", logger.Field{Key: "addr", Value: ":" + s.config.HTTPServer.Port})
+		err := s.httpServer.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("HTTP server: %w", err)
+		}
+		return nil
+	})
+
+	if s.grpcServer != nil {
+		g.Go(func() error {
+			return nil
+		})
 	}
 
-	return nil
+	return g.Wait()
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
@@ -173,10 +140,15 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	var errs []error
 
-	if s.httpServer != nil {
-		s.logger.Info(ctx, "Shutting down HTTP server")
-		if err := s.httpServer.Shutdown(ctx); err != nil {
+	if s.httpShutdown != nil {
+		if err := s.httpShutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("HTTP server shutdown: %w", err))
+		}
+	}
+
+	if s.grpcShutdown != nil {
+		if err := s.grpcShutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("gRPC server shutdown: %w", err))
 		}
 	}
 

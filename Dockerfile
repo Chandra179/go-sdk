@@ -22,8 +22,8 @@ COPY --from=builder /app/main .
 # Copy migrations directory
 COPY --from=builder /app/db/migrations ./db/migrations
 
-# Expose app port (change if needed)
-EXPOSE 8080
+# Expose app ports (HTTP and gRPC)
+EXPOSE 8080 9090
 
 # Run the server
 CMD ["./main"]
