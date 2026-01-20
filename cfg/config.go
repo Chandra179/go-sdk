@@ -3,7 +3,6 @@ package cfg
 import (
 	"errors"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -47,16 +46,6 @@ type HTTPServerConfig struct {
 	WriteTimeout time.Duration
 }
 
-type GRPCServerConfig struct {
-	Port           string
-	MaxRecvMsgSize int
-	MaxSendMsgSize int
-}
-
-type GatewayConfig struct {
-	Enabled bool
-}
-
 type Config struct {
 	AppEnv          string
 	Redis           RedisConfig
@@ -65,8 +54,6 @@ type Config struct {
 	Observability   ObservabilityConfig
 	Kafka           KafkaConfig
 	HTTPServer      HTTPServerConfig
-	GRPCServer      GRPCServerConfig
-	Gateway         GatewayConfig
 	ShutdownTimeout time.Duration
 }
 
@@ -142,30 +129,6 @@ func Load() (*Config, error) {
 		errs = append(errs, errors.New("invalid duration for HTTP_WRITE_TIMEOUT: "+httpWriteTimeoutStr))
 	}
 
-	// ==========
-	// gRPC Server
-	// ==========
-	grpcPort := getEnvOrDefault("GRPC_PORT", "9090")
-	grpcMaxRecvMsgSizeStr := getEnvOrDefault("GRPC_MAX_RECV_MSG_SIZE", "4194304")
-	grpcMaxRecvMsgSize, err := strconv.Atoi(grpcMaxRecvMsgSizeStr)
-	if err != nil {
-		errs = append(errs, errors.New("invalid value for GRPC_MAX_RECV_MSG_SIZE: "+grpcMaxRecvMsgSizeStr))
-	}
-	grpcMaxSendMsgSizeStr := getEnvOrDefault("GRPC_MAX_SEND_MSG_SIZE", "4194304")
-	grpcMaxSendMsgSize, err := strconv.Atoi(grpcMaxSendMsgSizeStr)
-	if err != nil {
-		errs = append(errs, errors.New("invalid value for GRPC_MAX_SEND_MSG_SIZE: "+grpcMaxSendMsgSizeStr))
-	}
-
-	// ==========
-	// Gateway
-	// ==========
-	gatewayEnabledStr := getEnvOrDefault("GATEWAY_ENABLED", "true")
-	gatewayEnabled, err := strconv.ParseBool(gatewayEnabledStr)
-	if err != nil {
-		errs = append(errs, errors.New("invalid value for GATEWAY_ENABLED: "+gatewayEnabledStr))
-	}
-
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -204,14 +167,6 @@ func Load() (*Config, error) {
 			Port:         httpPort,
 			ReadTimeout:  httpReadTimeout,
 			WriteTimeout: httpWriteTimeout,
-		},
-		GRPCServer: GRPCServerConfig{
-			Port:           grpcPort,
-			MaxRecvMsgSize: grpcMaxRecvMsgSize,
-			MaxSendMsgSize: grpcMaxSendMsgSize,
-		},
-		Gateway: GatewayConfig{
-			Enabled: gatewayEnabled,
 		},
 		ShutdownTimeout: shutdownTimeout,
 	}, nil
