@@ -1,4 +1,4 @@
-package app
+package bootstrap
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
-func setupObservability(ctx context.Context, obsCfg *cfg.ObservabilityConfig) (func(context.Context) error, error) {
+func InitObservability(ctx context.Context, obsCfg *cfg.ObservabilityConfig, samplerRatio float64) (func(context.Context) error, error) {
 	res, err := resource.New(ctx,
 		resource.WithAttributes(semconv.ServiceNameKey.String(obsCfg.ServiceName)),
 	)
@@ -27,7 +27,7 @@ func setupObservability(ctx context.Context, obsCfg *cfg.ObservabilityConfig) (f
 		return nil, fmt.Errorf("create resource: %w", err)
 	}
 
-	tracerProvider, err := setupTracing(ctx, obsCfg, res)
+	tracerProvider, err := setupTracing(ctx, obsCfg, res, samplerRatio)
 	if err != nil {
 		return nil, fmt.Errorf("setup tracing: %w", err)
 	}
@@ -39,7 +39,7 @@ func setupObservability(ctx context.Context, obsCfg *cfg.ObservabilityConfig) (f
 
 	loggerProvider, err := setupLogs(ctx, obsCfg, res)
 	if err != nil {
-		meterProvider.Shutdown(ctx) // cleanup
+		meterProvider.Shutdown(ctx)
 		return nil, fmt.Errorf("setup logs: %w", err)
 	}
 
@@ -99,7 +99,7 @@ func setupLogs(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resource.
 	return provider, nil
 }
 
-func setupTracing(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resource.Resource) (*sdktrace.TracerProvider, error) {
+func setupTracing(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resource.Resource, samplerRatio float64) (*sdktrace.TracerProvider, error) {
 	exporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint),
 		otlptracegrpc.WithInsecure(),
@@ -108,8 +108,7 @@ func setupTracing(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resour
 		return nil, err
 	}
 
-	// Simple sampler - adjust based on needs
-	sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.1))
+	sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplerRatio))
 
 	provider := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),

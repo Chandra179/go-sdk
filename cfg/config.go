@@ -3,6 +3,7 @@ package cfg
 import (
 	"errors"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -25,6 +26,7 @@ type Oauth2Config struct {
 type ObservabilityConfig struct {
 	OTLPEndpoint string
 	ServiceName  string
+	SamplerRatio float64
 }
 
 type KafkaConfig struct {
@@ -32,12 +34,13 @@ type KafkaConfig struct {
 }
 
 type PostgresConfig struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	DBName   string
-	SSLMode  string
+	Host          string
+	Port          string
+	User          string
+	Password      string
+	DBName        string
+	SSLMode       string
+	MigrationPath string
 }
 
 type HTTPServerConfig struct {
@@ -63,7 +66,7 @@ func Load() (*Config, error) {
 	appEnv := mustEnv("APP_ENV", &errs)
 	host := mustEnv("REDIS_HOST", &errs)
 	port := mustEnv("REDIS_PORT", &errs)
-	password := getEnvOrDefault("REDIS_PASSWORD", "")
+	password := mustEnv("REDIS_PASSWORD", &errs)
 
 	// ==========
 	// OAuth2
@@ -94,21 +97,27 @@ func Load() (*Config, error) {
 	pgUser := mustEnv("POSTGRES_USER", &errs)
 	pgPassword := mustEnv("POSTGRES_PASSWORD", &errs)
 	pgDB := mustEnv("POSTGRES_DB", &errs)
-	pgSSL := getEnvOrDefault("POSTGRES_SSLMODE", "disable") // default disable
+	pgSSL := mustEnv("POSTGRES_SSLMODE", &errs)
+	migrationPath := mustEnv("MIGRATION_PATH", &errs)
 
 	// ==========
 	// Observability
 	// ==========
 	otlpEndpoint := mustEnv("OTEL_EXPORTER_OTLP_ENDPOINT", &errs)
 	serviceName := mustEnv("OTEL_SERVICE_NAME", &errs)
+	samplerRatioStr := mustEnv("OTEL_SAMPLER_RATIO", &errs)
+	samplerRatio, err := strconv.ParseFloat(samplerRatioStr, 64)
+	if err != nil {
+		errs = append(errs, errors.New("invalid float for OTEL_SAMPLER_RATIO: "+samplerRatioStr))
+	}
 
 	// ==========
 	// Kafka
 	// ==========
-	kafkaBrokersStr := getEnvOrDefault("KAFKA_BROKERS", "localhost:9092")
+	kafkaBrokersStr := mustEnv("KAFKA_BROKERS", &errs)
 	kafkaBrokers := []string{kafkaBrokersStr}
 
-	shutdownTimeoutStr := getEnvOrDefault("SHUTDOWN_TIMEOUT", "30s")
+	shutdownTimeoutStr := mustEnv("SHUTDOWN_TIMEOUT", &errs)
 	shutdownTimeout, err := time.ParseDuration(shutdownTimeoutStr)
 	if err != nil {
 		errs = append(errs, errors.New("invalid duration for SHUTDOWN_TIMEOUT: "+shutdownTimeoutStr))
@@ -117,13 +126,13 @@ func Load() (*Config, error) {
 	// ==========
 	// HTTP Server
 	// ==========
-	httpPort := getEnvOrDefault("HTTP_PORT", "8080")
-	httpReadTimeoutStr := getEnvOrDefault("HTTP_READ_TIMEOUT", "30s")
+	httpPort := mustEnv("HTTP_PORT", &errs)
+	httpReadTimeoutStr := mustEnv("HTTP_READ_TIMEOUT", &errs)
 	httpReadTimeout, err := time.ParseDuration(httpReadTimeoutStr)
 	if err != nil {
 		errs = append(errs, errors.New("invalid duration for HTTP_READ_TIMEOUT: "+httpReadTimeoutStr))
 	}
-	httpWriteTimeoutStr := getEnvOrDefault("HTTP_WRITE_TIMEOUT", "30s")
+	httpWriteTimeoutStr := mustEnv("HTTP_WRITE_TIMEOUT", &errs)
 	httpWriteTimeout, err := time.ParseDuration(httpWriteTimeoutStr)
 	if err != nil {
 		errs = append(errs, errors.New("invalid duration for HTTP_WRITE_TIMEOUT: "+httpWriteTimeoutStr))
@@ -151,14 +160,16 @@ func Load() (*Config, error) {
 		Observability: ObservabilityConfig{
 			OTLPEndpoint: otlpEndpoint,
 			ServiceName:  serviceName,
+			SamplerRatio: samplerRatio,
 		},
 		Postgres: PostgresConfig{
-			Host:     pgHost,
-			Port:     pgPort,
-			User:     pgUser,
-			Password: pgPassword,
-			DBName:   pgDB,
-			SSLMode:  pgSSL,
+			Host:          pgHost,
+			Port:          pgPort,
+			User:          pgUser,
+			Password:      pgPassword,
+			DBName:        pgDB,
+			SSLMode:       pgSSL,
+			MigrationPath: migrationPath,
 		},
 		Kafka: KafkaConfig{
 			Brokers: kafkaBrokers,
@@ -177,15 +188,6 @@ func mustEnv(key string, errs *[]error) string {
 	value, exists := os.LookupEnv(key)
 	if !exists || value == "" {
 		*errs = append(*errs, errors.New("missing env: "+key))
-	}
-	return value
-}
-
-// getEnvOrDefault returns environment variable value or default if not set.
-func getEnvOrDefault(key, defaultValue string) string {
-	value, exists := os.LookupEnv(key)
-	if !exists || value == "" {
-		return defaultValue
 	}
 	return value
 }

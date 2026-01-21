@@ -1,4 +1,4 @@
-package app
+package health
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type HealthChecker struct {
+type Checker struct {
 	db     DBChecker
 	cache  CacheChecker
 	kafka  KafkaChecker
@@ -32,8 +32,8 @@ type KafkaChecker interface {
 	Close() error
 }
 
-func NewHealthChecker(db DBChecker, cache CacheChecker, kafka KafkaChecker, logger logger.Logger) *HealthChecker {
-	return &HealthChecker{
+func NewChecker(db DBChecker, cache CacheChecker, kafka KafkaChecker, logger logger.Logger) *Checker {
+	return &Checker{
 		db:     db,
 		cache:  cache,
 		kafka:  kafka,
@@ -41,20 +41,20 @@ func NewHealthChecker(db DBChecker, cache CacheChecker, kafka KafkaChecker, logg
 	}
 }
 
-type HealthStatus struct {
+type Status struct {
 	Status    string            `json:"status"`
 	Timestamp string            `json:"timestamp"`
 	Checks    map[string]string `json:"checks,omitempty"`
 }
 
-func (h *HealthChecker) Liveness(c *gin.Context) {
-	c.JSON(http.StatusOK, HealthStatus{
+func (h *Checker) Liveness(c *gin.Context) {
+	c.JSON(http.StatusOK, Status{
 		Status:    "ok",
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
-func (h *HealthChecker) Readiness(c *gin.Context) {
+func (h *Checker) Readiness(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
@@ -89,13 +89,13 @@ func (h *HealthChecker) Readiness(c *gin.Context) {
 	}
 
 	if healthy {
-		c.JSON(http.StatusOK, HealthStatus{
+		c.JSON(http.StatusOK, Status{
 			Status:    "ready",
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Checks:    checks,
 		})
 	} else {
-		c.JSON(http.StatusServiceUnavailable, HealthStatus{
+		c.JSON(http.StatusServiceUnavailable, Status{
 			Status:    "not_ready",
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Checks:    checks,

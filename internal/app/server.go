@@ -7,6 +7,10 @@ import (
 	"net/http"
 
 	"gosdk/cfg"
+	"gosdk/internal/app/bootstrap"
+	"gosdk/internal/app/health"
+	"gosdk/internal/app/middleware"
+	"gosdk/internal/app/routes"
 	"gosdk/internal/service/auth"
 	"gosdk/internal/service/event"
 	"gosdk/internal/service/session"
@@ -19,7 +23,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Server holds all application dependencies
 type Server struct {
 	config               *cfg.Config
 	httpServer           *http.Server
@@ -37,13 +40,12 @@ type Server struct {
 	httpShutdown         func(context.Context) error
 }
 
-// NewServer creates and initializes a new server instance
 func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 	s := &Server{
 		config: config,
 	}
 
-	shutdown, err := setupObservability(ctx, &config.Observability)
+	shutdown, err := bootstrap.InitObservability(ctx, &config.Observability, config.Observability.SamplerRatio)
 	if err != nil {
 		return nil, fmt.Errorf("observability setup: %w", err)
 	}
@@ -52,21 +54,24 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 	s.logger = logger.NewLogger(config.AppEnv)
 	s.logger.Info(ctx, "Initializing server...")
 
-	if err := s.initDatabase(); err != nil {
+	dsn := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		config.Postgres.User, config.Postgres.Password, config.Postgres.Host, config.Postgres.Port, config.Postgres.DBName, config.Postgres.SSLMode,
+	)
+
+	s.db, err = bootstrap.InitDatabase(dsn, config.Postgres.MigrationPath)
+	if err != nil {
 		return nil, fmt.Errorf("database init: %w", err)
 	}
 
-	if err := s.initCache(); err != nil {
-		return nil, fmt.Errorf("cache init: %w", err)
-	}
+	s.cache = bootstrap.InitCache(config.Redis.Host, config.Redis.Port)
 
-	if err := s.initOAuth2(ctx); err != nil {
+	s.oauth2Manager, err = bootstrap.InitOAuth2(ctx, &config.OAuth2)
+	if err != nil {
 		return nil, fmt.Errorf("oauth2 init: %w", err)
 	}
 
-	if err := s.initEvent(); err != nil {
-		return nil, fmt.Errorf("event init: %w", err)
-	}
+	s.kafkaClient, s.messageBrokerSvc, s.messageBrokerHandler = bootstrap.InitEvent(config.Kafka.Brokers)
 
 	s.initServices()
 	s.setupRoutes()
@@ -75,17 +80,39 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 	return s, nil
 }
 
+func (s *Server) initServices() {
+	s.sessionStore = session.NewRedisStore(s.cache)
+
+	s.authService = auth.NewService(
+		s.oauth2Manager,
+		s.sessionStore,
+		s.db,
+	)
+
+	s.oauth2Manager.CallbackHandler = func(
+		ctx context.Context,
+		provider string,
+		userInfo *oauth2.UserInfo,
+		tokenSet *oauth2.TokenSet,
+	) (*oauth2.CallbackInfo, error) {
+		return s.authService.HandleCallback(ctx, provider, userInfo, tokenSet)
+	}
+}
+
 func (s *Server) setupRoutes() {
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.RequestIDMiddleware())
+	r.Use(middleware.LoggingMiddleware(s.logger))
+	r.Use(middleware.CORSMiddleware())
 
-	healthChecker := NewHealthChecker(s.db, s.cache, s.kafkaClient, s.logger)
-	setupInfraRoutes(r, healthChecker)
+	healthChecker := health.NewChecker(s.db, s.cache, s.kafkaClient, s.logger)
+	routes.SetupInfra(r, healthChecker)
 
 	authHandler := auth.NewHandler(s.authService, s.config)
-	setupAuthRoutes(r, authHandler, s.oauth2Manager)
+	routes.SetupAuth(r, authHandler, s.oauth2Manager)
 
-	setupMessageBrokerRoutes(r, s.messageBrokerHandler)
+	routes.SetupEvent(r, s.messageBrokerHandler)
 
 	s.router = r
 }

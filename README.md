@@ -10,7 +10,12 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │
 ├── internal/                          # Internal services (not importable externally)
 │   ├── app/                           # Application initialization
-│   │   └── server.go                  # Server setup, dependency injection
+│   │   ├── bootstrap/                # Component initialization (DB, cache, OAuth2, Kafka, OTEL)
+│   │   ├── health/                   # Health check endpoints
+│   │   ├── middleware/               # HTTP middleware (auth, logging, request ID, CORS)
+│   │   ├── routes/                   # HTTP route setup
+│   │   ├── server.go                 # Server setup, lifecycle management
+│   │   └── README.md                 # App architecture documentation
 │   └── service/                       # Domain services
 │       ├── auth/                      # Authentication service
 │       │   ├── handler.go             # HTTP handlers (Gin)

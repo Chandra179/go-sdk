@@ -4,11 +4,11 @@ ins:
 up:
 	docker compose up -d
 
-build:
+ba:
 	docker compose up --build -d
 
-run:
-	go run cmd/myapp/main.go
+b:
+	docker compose up gosdk-app --build -d
 
 swag:
 	swag init -g /cmd/myapp/main.go -o api

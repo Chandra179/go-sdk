@@ -14,6 +14,7 @@ func TestLoad_Success(t *testing.T) {
 		"APP_ENV":                     "development",
 		"REDIS_HOST":                  "localhost",
 		"REDIS_PORT":                  "6379",
+		"REDIS_PASSWORD":              "redispass",
 		"GOOGLE_CLIENT_ID":            "test-client-id",
 		"GOOGLE_CLIENT_SECRET":        "test-client-secret",
 		"GOOGLE_REDIRECT_URL":         "http://localhost:8080/callback",
@@ -25,8 +26,16 @@ func TestLoad_Success(t *testing.T) {
 		"POSTGRES_USER":               "testuser",
 		"POSTGRES_PASSWORD":           "testpass",
 		"POSTGRES_DB":                 "testdb",
+		"POSTGRES_SSLMODE":            "disable",
+		"MIGRATION_PATH":              "db/migrations",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
 		"OTEL_SERVICE_NAME":           "gosdk",
+		"OTEL_SAMPLER_RATIO":          "0.1",
+		"KAFKA_BROKERS":               "localhost:9092",
+		"SHUTDOWN_TIMEOUT":            "30s",
+		"HTTP_PORT":                   "8080",
+		"HTTP_READ_TIMEOUT":           "30s",
+		"HTTP_WRITE_TIMEOUT":          "30s",
 	}
 
 	for key, value := range envVars {
@@ -46,6 +55,7 @@ func TestLoad_MissingRequiredEnv(t *testing.T) {
 	for _, key := range []string{
 		"REDIS_HOST",
 		"REDIS_PORT",
+		"REDIS_PASSWORD",
 		"GOOGLE_CLIENT_ID",
 		"GOOGLE_CLIENT_SECRET",
 		"GOOGLE_REDIRECT_URL",
@@ -57,8 +67,16 @@ func TestLoad_MissingRequiredEnv(t *testing.T) {
 		"POSTGRES_USER",
 		"POSTGRES_PASSWORD",
 		"POSTGRES_DB",
+		"POSTGRES_SSLMODE",
+		"MIGRATION_PATH",
 		"OTEL_EXPORTER_OTLP_ENDPOINT",
 		"OTEL_SERVICE_NAME",
+		"OTEL_SAMPLER_RATIO",
+		"KAFKA_BROKERS",
+		"SHUTDOWN_TIMEOUT",
+		"HTTP_PORT",
+		"HTTP_READ_TIMEOUT",
+		"HTTP_WRITE_TIMEOUT",
 	} {
 		os.Unsetenv(key)
 	}
@@ -72,6 +90,7 @@ func TestLoad_ShortJWTSecret(t *testing.T) {
 		"APP_ENV":                     "development",
 		"REDIS_HOST":                  "localhost",
 		"REDIS_PORT":                  "6379",
+		"REDIS_PASSWORD":              "redispass",
 		"GOOGLE_CLIENT_ID":            "test-client-id",
 		"GOOGLE_CLIENT_SECRET":        "test-client-secret",
 		"GOOGLE_REDIRECT_URL":         "http://localhost:8080/callback",
@@ -83,8 +102,16 @@ func TestLoad_ShortJWTSecret(t *testing.T) {
 		"POSTGRES_USER":               "testuser",
 		"POSTGRES_PASSWORD":           "testpass",
 		"POSTGRES_DB":                 "testdb",
+		"POSTGRES_SSLMODE":            "disable",
+		"MIGRATION_PATH":              "db/migrations",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
 		"OTEL_SERVICE_NAME":           "gosdk",
+		"OTEL_SAMPLER_RATIO":          "0.1",
+		"KAFKA_BROKERS":               "localhost:9092",
+		"SHUTDOWN_TIMEOUT":            "30s",
+		"HTTP_PORT":                   "8080",
+		"HTTP_READ_TIMEOUT":           "30s",
+		"HTTP_WRITE_TIMEOUT":          "30s",
 	}
 
 	for key, value := range envVars {
@@ -101,6 +128,7 @@ func TestLoad_ValidJWTSecret(t *testing.T) {
 		"APP_ENV":                     "development",
 		"REDIS_HOST":                  "localhost",
 		"REDIS_PORT":                  "6379",
+		"REDIS_PASSWORD":              "redispass",
 		"GOOGLE_CLIENT_ID":            "test-client-id",
 		"GOOGLE_CLIENT_SECRET":        "test-client-secret",
 		"GOOGLE_REDIRECT_URL":         "http://localhost:8080/callback",
@@ -112,8 +140,16 @@ func TestLoad_ValidJWTSecret(t *testing.T) {
 		"POSTGRES_USER":               "testuser",
 		"POSTGRES_PASSWORD":           "testpass",
 		"POSTGRES_DB":                 "testdb",
+		"POSTGRES_SSLMODE":            "disable",
+		"MIGRATION_PATH":              "db/migrations",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
 		"OTEL_SERVICE_NAME":           "gosdk",
+		"OTEL_SAMPLER_RATIO":          "0.1",
+		"KAFKA_BROKERS":               "localhost:9092",
+		"SHUTDOWN_TIMEOUT":            "30s",
+		"HTTP_PORT":                   "8080",
+		"HTTP_READ_TIMEOUT":           "30s",
+		"HTTP_WRITE_TIMEOUT":          "30s",
 	}
 
 	for key, value := range envVars {
@@ -130,6 +166,7 @@ func TestLoad_DefaultValues(t *testing.T) {
 		"APP_ENV":                     "production",
 		"REDIS_HOST":                  "localhost",
 		"REDIS_PORT":                  "6379",
+		"REDIS_PASSWORD":              "redispass",
 		"GOOGLE_CLIENT_ID":            "test-client-id",
 		"GOOGLE_CLIENT_SECRET":        "test-client-secret",
 		"GOOGLE_REDIRECT_URL":         "http://localhost:8080/callback",
@@ -141,8 +178,16 @@ func TestLoad_DefaultValues(t *testing.T) {
 		"POSTGRES_USER":               "testuser",
 		"POSTGRES_PASSWORD":           "testpass",
 		"POSTGRES_DB":                 "testdb",
+		"POSTGRES_SSLMODE":            "disable",
+		"MIGRATION_PATH":              "db/migrations",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
 		"OTEL_SERVICE_NAME":           "gosdk",
+		"OTEL_SAMPLER_RATIO":          "0.1",
+		"KAFKA_BROKERS":               "localhost:9092",
+		"SHUTDOWN_TIMEOUT":            "30s",
+		"HTTP_PORT":                   "8080",
+		"HTTP_READ_TIMEOUT":           "30s",
+		"HTTP_WRITE_TIMEOUT":          "30s",
 	}
 
 	for key, value := range envVars {

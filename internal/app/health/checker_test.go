@@ -1,44 +1,20 @@
-package app
+package health
 
 import (
-	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"gosdk/pkg/logger"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
-type MockDBChecker struct {
-	pingErr error
-}
-
-func (m *MockDBChecker) PingContext(ctx context.Context) error {
-	return m.pingErr
-}
-
-func (m *MockDBChecker) Close() error {
-	return nil
-}
-
-type MockCacheChecker struct {
-	pingErr error
-}
-
-func (m *MockCacheChecker) Ping(ctx context.Context) error {
-	return m.pingErr
-}
-
-func (m *MockCacheChecker) Close() error {
-	return nil
-}
-
-func TestHealthChecker_Liveness(t *testing.T) {
+func TestChecker_Liveness(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	hc := NewHealthChecker(&MockDBChecker{}, &MockCacheChecker{}, nil, logger.NewLogger("test"))
+	mockLogger := &MockLogger{}
+	hc := NewChecker(nil, nil, nil, mockLogger)
 
 	router := gin.New()
 	router.GET("/healthz", hc.Liveness)
@@ -52,11 +28,18 @@ func TestHealthChecker_Liveness(t *testing.T) {
 	assert.Contains(t, w.Body.String(), `"status":"ok"`)
 }
 
-func TestHealthChecker_Readiness(t *testing.T) {
+func TestChecker_Readiness(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("all healthy", func(t *testing.T) {
-		hc := NewHealthChecker(&MockDBChecker{}, &MockCacheChecker{}, nil, logger.NewLogger("test"))
+		mockDB := &MockDBChecker{}
+		mockDB.On("PingContext", mock.Anything).Return(nil)
+		mockCache := &MockCacheChecker{}
+		mockCache.On("Ping", mock.Anything).Return(nil)
+		mockKafka := &MockKafkaChecker{}
+		mockKafka.On("Ping", mock.Anything).Return(nil)
+		mockLogger := &MockLogger{}
+		hc := NewChecker(mockDB, mockCache, mockKafka, mockLogger)
 
 		router := gin.New()
 		router.GET("/readyz", hc.Readiness)
@@ -71,7 +54,14 @@ func TestHealthChecker_Readiness(t *testing.T) {
 	})
 
 	t.Run("database unhealthy", func(t *testing.T) {
-		hc := NewHealthChecker(&MockDBChecker{pingErr: assert.AnError}, &MockCacheChecker{}, nil, logger.NewLogger("test"))
+		mockDB := &MockDBChecker{}
+		mockDB.On("PingContext", mock.Anything).Return(errors.New("db error"))
+		mockCache := &MockCacheChecker{}
+		mockCache.On("Ping", mock.Anything).Return(nil)
+		mockKafka := &MockKafkaChecker{}
+		mockKafka.On("Ping", mock.Anything).Return(nil)
+		mockLogger := &MockLogger{}
+		hc := NewChecker(mockDB, mockCache, mockKafka, mockLogger)
 
 		router := gin.New()
 		router.GET("/readyz", hc.Readiness)

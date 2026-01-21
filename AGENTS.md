@@ -2,6 +2,9 @@
 
 Build commands and code style guidelines for agentic coding agents in this Go SDK repository.
 
+## Security Rules
+- **NEVER read .env files** - These contain sensitive credentials and secrets. Refer to `.env.example` for required environment variables instead.
+
 ## Commands
 
 ### Build & Run
@@ -14,47 +17,38 @@ make swag             # generate swagger docs
 ```
 
 ### Verification (MANDATORY)
-Run these before submitting any changes:
 ```bash
-golangci-lint run     # run golangci-lint (install if needed)
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+golangci-lint run     # run golangci-lint
 make test             # run all tests (race + cover)
 ```
 
 ### Testing (Specific)
 ```bash
-# Run all tests in a package
 go test -v ./internal/service/auth/...
-
-# Run a specific test function
 go test -v -run TestUserRepository_CreateUser ./pkg/db
-
-# Run tests with race detection (recommended)
 go test -race ./pkg/db/...
-
-# Generate coverage report
 make test-coverage
 ```
 
-## Code Style Guidelines
+## Code Style
 
 ### Imports
-Group imports: stdlib, third-party, then internal (`gosdk/*`). Separate groups with blank lines.
+Group: stdlib → `gosdk/*` internal → external `github.com/*`
 ```go
 import (
     "context"
     "fmt"
-    "net/http"
-
-    "github.com/gin-gonic/gin"
-    "github.com/redis/go-redis/v9"
 
     "gosdk/cfg"
-    "gosdk/internal/service/auth"
     "gosdk/pkg/logger"
+
+    "github.com/gin-gonic/gin"
+    "github.com/google/uuid"
 )
 ```
 
-### Naming Conventions
+### Naming
 - **Constructors**: `NewXxx` (e.g., `NewServer`, `NewHandler`)
 - **Interfaces**: Define in consuming package (consumer-driven)
 - **Errors**: `ErrXxx` (e.g., `ErrUserNotFound`)
@@ -63,7 +57,6 @@ import (
 - **Line Length**: Max 120 characters
 
 ### Interface-First Design
-Define interfaces for dependencies to enable mocking.
 ```go
 type UserRepository interface {
     GetByID(ctx context.Context, id string) (*User, error)
@@ -103,13 +96,10 @@ func Load() (*Config, error) {
 ### Database Access
 Use `gosdk/pkg/db` SQLExecutor interface for all database operations.
 ```go
-// Transaction
 err := s.db.WithTransaction(ctx, sql.LevelReadCommitted, func(ctx context.Context, tx *sql.Tx) error {
     _, err := tx.ExecContext(ctx, query, args...)
     return err
 })
-
-// Query
 err := s.db.QueryRowContext(ctx, query, args...).Scan(&user.ID, &user.Name)
 ```
 
@@ -122,12 +112,9 @@ err := s.db.QueryRowContext(ctx, query, args...).Scan(&user.ID, &user.Name)
 ```go
 func TestUserRepository_CreateUser(t *testing.T) {
     t.Run("success", func(t *testing.T) {
-        // Arrange
         mockDB := new(MockSQLExecutor)
         repo := NewUserRepository(mockDB)
-        // Act
         err := repo.CreateUser(ctx, name, email)
-        // Assert
         assert.NoError(t, err)
         mockDB.AssertExpectations(t)
     })
@@ -135,7 +122,6 @@ func TestUserRepository_CreateUser(t *testing.T) {
 ```
 
 ### Swagger Documentation
-Add Swagger annotations to handler functions.
 ```go
 // @Summary Login with OAuth2 provider
 // @Tags auth
