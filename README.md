@@ -21,7 +21,6 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │       │   ├── handler.go             # HTTP handlers (Gin)
 │       │   ├── service.go             # Business logic
 │       │   └── types.go               # DTOs and models
-│       ├── event/                     # Event service
 │       └── session/                   # Session service
 │
 ├── pkg/                               # Reusable library packages
@@ -32,7 +31,6 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │   ├── logger/                        # Zerolog wrapper & helpers
 │   ├── oauth2/                        # OAuth2 manager & token helpers
 │   ├── passkey/                       # Passkey/WebAuthn utilities
-│   ├── testutil/                      # Testing utilities
 │   └── validator/                     # Input validation utilities
 │
 ├── db/                                # Database-related files
@@ -52,17 +50,11 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │   ├── prometheus.yml                 # Prometheus metrics config
 │   └── grafana-datasources.yaml       # Grafana datasources
 │
-├── k8s/                               # Kubernetes manifests
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   └── configmap.yaml
-│
+├── docs/                              # Documentation
 ├── AGENTS.md                          # Agent coding guidelines
-├── IMPROVEMENTS.md                    # Technical debt & improvements
 ├── Makefile                           # Build commands
 ├── docker-compose.yml                 # Local services
 ├── Dockerfile                         # Container image
-├── .golangci.yml                      # Linting configuration
 ├── add-secrets.sh                     # Secrets management helper
 ├── test.http                          # API testing file
 └── .env.example                       # Environment variables template

@@ -12,7 +12,6 @@ import (
 	"gosdk/internal/app/middleware"
 	"gosdk/internal/app/routes"
 	"gosdk/internal/service/auth"
-	"gosdk/internal/service/event"
 	"gosdk/internal/service/session"
 	"gosdk/pkg/cache"
 	"gosdk/pkg/db"
@@ -24,20 +23,18 @@ import (
 )
 
 type Server struct {
-	config               *cfg.Config
-	httpServer           *http.Server
-	router               *gin.Engine
-	logger               *logger.AppLogger
-	db                   db.DB
-	cache                cache.Cache
-	sessionStore         session.Client
-	oauth2Manager        *oauth2.Manager
-	authService          *auth.Service
-	kafkaClient          kafka.Client
-	messageBrokerSvc     *event.Service
-	messageBrokerHandler *event.Handler
-	shutdown             func(context.Context) error
-	httpShutdown         func(context.Context) error
+	config        *cfg.Config
+	httpServer    *http.Server
+	router        *gin.Engine
+	logger        *logger.AppLogger
+	db            db.DB
+	cache         cache.Cache
+	sessionStore  session.Client
+	oauth2Manager *oauth2.Manager
+	authService   *auth.Service
+	kafkaClient   kafka.Client
+	shutdown      func(context.Context) error
+	httpShutdown  func(context.Context) error
 }
 
 func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
@@ -70,8 +67,6 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("oauth2 init: %w", err)
 	}
-
-	s.kafkaClient, s.messageBrokerSvc, s.messageBrokerHandler = bootstrap.InitEvent(config.Kafka.Brokers)
 
 	s.initServices()
 	s.setupRoutes()
@@ -111,8 +106,6 @@ func (s *Server) setupRoutes() {
 
 	authHandler := auth.NewHandler(s.authService, s.config)
 	routes.SetupAuth(r, authHandler, s.oauth2Manager)
-
-	routes.SetupEvent(r, s.messageBrokerHandler)
 
 	s.router = r
 }

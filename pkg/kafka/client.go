@@ -2,38 +2,33 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"sync"
+
+	kafkago "github.com/segmentio/kafka-go"
 )
 
-type Producer interface {
-	Publish(ctx context.Context, msg Message) error
-	Close() error
-}
-
-type Consumer interface {
-	Subscribe(ctx context.Context, topics []string, handler ConsumerHandler) error
-	Close() error
-}
-
-type Client interface {
-	Producer() (Producer, error)
-	Consumer(groupID string) (Consumer, error)
-	Ping(ctx context.Context) error
-	Close() error
-}
-
 type KafkaClient struct {
+	config    *Config
 	brokers   []string
+	dialer    *kafkago.Dialer
 	producer  *KafkaProducer
 	consumers map[string]*KafkaConsumer
 	mu        sync.RWMutex
 }
 
-func NewClient(brokers []string) Client {
-	return &KafkaClient{
-		brokers:   brokers,
-		consumers: make(map[string]*KafkaConsumer),
+func NewClient(cfg *Config) (Client, error) {
+	dialer, err := CreateDialer(&cfg.Security)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dialer: %w", err)
 	}
+
+	return &KafkaClient{
+		config:    cfg,
+		brokers:   cfg.Brokers,
+		dialer:    dialer,
+		consumers: make(map[string]*KafkaConsumer),
+	}, nil
 }
 
 func (c *KafkaClient) Producer() (Producer, error) {
@@ -41,7 +36,7 @@ func (c *KafkaClient) Producer() (Producer, error) {
 	defer c.mu.Unlock()
 
 	if c.producer == nil {
-		c.producer = NewKafkaProducer(c.brokers)
+		c.producer = NewKafkaProducer(&c.config.Producer, c.brokers, c.dialer)
 	}
 
 	return c.producer, nil
@@ -52,7 +47,7 @@ func (c *KafkaClient) Consumer(groupID string) (Consumer, error) {
 	defer c.mu.Unlock()
 
 	if _, exists := c.consumers[groupID]; !exists {
-		consumer := NewKafkaConsumer(c.brokers, groupID, "")
+		consumer := NewKafkaConsumer(&c.config.Consumer, c.brokers, groupID, c.dialer)
 		c.consumers[groupID] = consumer
 	}
 
@@ -82,14 +77,14 @@ func (c *KafkaClient) Close() error {
 }
 
 func (c *KafkaClient) Ping(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
-	for _, consumer := range c.consumers {
-		if err := consumer.Ping(ctx); err != nil {
-			return err
-		}
+	conn, err := c.dialer.DialContext(ctx, "tcp", c.brokers[0])
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrKafkaConnection, err)
 	}
+	defer conn.Close()
 
 	return nil
 }

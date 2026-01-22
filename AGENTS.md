@@ -12,7 +12,8 @@ Build commands and code style guidelines for agentic coding agents in this Go SD
 make ins              # tidy & vendor dependencies
 make run              # run main app
 make up               # start services (docker)
-make build            # build & start services (docker)
+make ba               # build & start all services (docker)
+make b                # build & start app service only (docker)
 make swag             # generate swagger docs
 ```
 
@@ -108,6 +109,18 @@ err := s.db.QueryRowContext(ctx, query, args...).Scan(&user.ID, &user.Name)
 - Table-driven tests with `t.Run()`: Arrange, Act, Assert
 - Mock interfaces using `mock.Mock` for unit tests
 - Test naming: `TestStructName_MethodName`
+
+```go
+func TestUserRepository_CreateUser(t *testing.T) {
+    t.Run("success", func(t *testing.T) {
+        mockDB := new(MockSQLExecutor)
+        repo := NewUserRepository(mockDB)
+        err := repo.CreateUser(ctx, name, email)
+        assert.NoError(t, err)
+        mockDB.AssertExpectations(t)
+    })
+}
+```
 
 ```go
 func TestUserRepository_CreateUser(t *testing.T) {

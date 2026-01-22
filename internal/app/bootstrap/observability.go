@@ -39,7 +39,7 @@ func InitObservability(ctx context.Context, obsCfg *cfg.ObservabilityConfig, sam
 
 	loggerProvider, err := setupLogs(ctx, obsCfg, res)
 	if err != nil {
-		meterProvider.Shutdown(ctx)
+		_ = meterProvider.Shutdown(ctx)
 		return nil, fmt.Errorf("setup logs: %w", err)
 	}
 

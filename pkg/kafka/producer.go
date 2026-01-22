@@ -2,26 +2,47 @@ package kafka
 
 import (
 	"context"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	kafkago "github.com/segmentio/kafka-go"
+	kafkacompress "github.com/segmentio/kafka-go/compress"
 )
 
 type KafkaProducer struct {
-	writer *kafkago.Writer
+	writer          *kafkago.Writer
+	compressionType string
 }
 
-func NewKafkaProducer(brokers []string) *KafkaProducer {
-	writer := &kafkago.Writer{
-		Addr:     kafkago.TCP(brokers...),
-		Balancer: &kafkago.LeastBytes{},
+func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dialer) *KafkaProducer {
+	acks := acksMap[cfg.RequiredAcks]
+	compression := kafkago.Compression(compressionCodeMap[cfg.CompressionType])
+
+	writer := kafkago.NewWriter(kafkago.WriterConfig{
+		Brokers:          brokers,
+		Balancer:         &kafkago.LeastBytes{},
+		RequiredAcks:     int(acks),
+		BatchSize:        cfg.BatchSize,
+		Async:            cfg.Async,
+		MaxAttempts:      cfg.MaxAttempts,
+		Dialer:           dialer,
+		ReadTimeout:      10 * time.Second,
+		WriteTimeout:     10 * time.Second,
+		CompressionCodec: kafkacompress.Codecs[compression],
+	})
+	return &KafkaProducer{
+		writer:          writer,
+		compressionType: cfg.CompressionType,
 	}
-	return &KafkaProducer{writer: writer}
 }
 
 func (p *KafkaProducer) Publish(ctx context.Context, msg Message) error {
 	if p.writer == nil {
 		return ErrProducerNotInitialized
 	}
+
+	timer := prometheus.NewTimer(ProducerSendLatency.WithLabelValues(msg.Topic))
+	defer timer.ObserveDuration()
 
 	kafkaMsg := kafkago.Message{
 		Topic: msg.Topic,
@@ -38,7 +59,14 @@ func (p *KafkaProducer) Publish(ctx context.Context, msg Message) error {
 		}
 	}
 
-	return p.writer.WriteMessages(ctx, kafkaMsg)
+	err := p.writer.WriteMessages(ctx, kafkaMsg)
+	if err != nil {
+		ProducerSendErrors.WithLabelValues(msg.Topic, "write_failed").Inc()
+		return err
+	}
+
+	ProducerMessagesSent.WithLabelValues(msg.Topic, p.compressionType).Inc()
+	return nil
 }
 
 func (p *KafkaProducer) Close() error {
@@ -46,4 +74,18 @@ func (p *KafkaProducer) Close() error {
 		return p.writer.Close()
 	}
 	return nil
+}
+
+var compressionCodeMap = map[string]int{
+	validCompressionNone:   int(kafkacompress.None),
+	validCompressionGzip:   int(kafkacompress.Gzip),
+	validCompressionSnappy: int(kafkacompress.Snappy),
+	validCompressionLz4:    int(kafkacompress.Lz4),
+	validCompressionZstd:   int(kafkacompress.Zstd),
+}
+
+var acksMap = map[string]kafkago.RequiredAcks{
+	validAcksAll:    kafkago.RequireAll,
+	validAcksNone:   kafkago.RequireNone,
+	validAcksLeader: kafkago.RequireOne,
 }

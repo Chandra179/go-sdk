@@ -29,8 +29,17 @@ type ObservabilityConfig struct {
 	SamplerRatio float64
 }
 
+type RetryConfig struct {
+	MaxRetries     int           `json:"max_retries"`
+	InitialBackoff time.Duration `json:"initial_backoff"`
+	MaxBackoff     time.Duration `json:"max_backoff"`
+	DLQEnabled     bool          `json:"dlq_enabled"`
+	DLQTopicPrefix string        `json:"dlq_topic_prefix"`
+}
+
 type KafkaConfig struct {
 	Brokers []string
+	Retry   RetryConfig
 }
 
 type PostgresConfig struct {
@@ -117,6 +126,32 @@ func Load() (*Config, error) {
 	kafkaBrokersStr := mustEnv("KAFKA_BROKERS", &errs)
 	kafkaBrokers := []string{kafkaBrokersStr}
 
+	kafkaMaxRetriesStr := mustEnv("KAFKA_MAX_RETRIES", &errs)
+	kafkaMaxRetries, err := strconv.Atoi(kafkaMaxRetriesStr)
+	if err != nil {
+		errs = append(errs, errors.New("invalid int for KAFKA_MAX_RETRIES: "+kafkaMaxRetriesStr))
+	}
+
+	kafkaInitialBackoffStr := mustEnv("KAFKA_RETRY_INITIAL_BACKOFF", &errs)
+	kafkaInitialBackoff, err := time.ParseDuration(kafkaInitialBackoffStr)
+	if err != nil {
+		errs = append(errs, errors.New("invalid duration for KAFKA_RETRY_INITIAL_BACKOFF: "+kafkaInitialBackoffStr))
+	}
+
+	kafkaMaxBackoffStr := mustEnv("KAFKA_RETRY_MAX_BACKOFF", &errs)
+	kafkaMaxBackoff, err := time.ParseDuration(kafkaMaxBackoffStr)
+	if err != nil {
+		errs = append(errs, errors.New("invalid duration for KAFKA_RETRY_MAX_BACKOFF: "+kafkaMaxBackoffStr))
+	}
+
+	kafkaDLQEnabledStr := mustEnv("KAFKA_DLQ_ENABLED", &errs)
+	kafkaDLQEnabled, err := strconv.ParseBool(kafkaDLQEnabledStr)
+	if err != nil {
+		errs = append(errs, errors.New("invalid bool for KAFKA_DLQ_ENABLED: "+kafkaDLQEnabledStr))
+	}
+
+	kafkaDLQTopicPrefix := mustEnv("KAFKA_DLQ_TOPIC_PREFIX", &errs)
+
 	shutdownTimeoutStr := mustEnv("SHUTDOWN_TIMEOUT", &errs)
 	shutdownTimeout, err := time.ParseDuration(shutdownTimeoutStr)
 	if err != nil {
@@ -173,6 +208,13 @@ func Load() (*Config, error) {
 		},
 		Kafka: KafkaConfig{
 			Brokers: kafkaBrokers,
+			Retry: RetryConfig{
+				MaxRetries:     kafkaMaxRetries,
+				InitialBackoff: kafkaInitialBackoff,
+				MaxBackoff:     kafkaMaxBackoff,
+				DLQEnabled:     kafkaDLQEnabled,
+				DLQTopicPrefix: kafkaDLQTopicPrefix,
+			},
 		},
 		HTTPServer: HTTPServerConfig{
 			Port:         httpPort,
