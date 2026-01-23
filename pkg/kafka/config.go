@@ -81,9 +81,9 @@ func Load() (*Config, error) {
 	brokerList := parseBrokers(brokers)
 
 	producer := loadProducerConfig(&errs)
-	consumer := loadConsumerConfig(&errs)
+	consumer := loadConsumerConfig()
 	security := loadSecurityConfig(&errs)
-	retry := loadRetryConfig(&errs)
+	retry := loadRetryConfig()
 
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("failed to load Kafka config: %w", joinErrors(errs))
@@ -130,7 +130,7 @@ func loadProducerConfig(errs *[]error) *ProducerConfig {
 	}
 }
 
-func loadConsumerConfig(errs *[]error) *ConsumerConfig {
+func loadConsumerConfig() *ConsumerConfig {
 	minBytes := getEnvInt64WithDefault("KAFKA_CONSUMER_MIN_BYTES", defaultConsumerMinBytes)
 	maxBytes := getEnvInt64WithDefault("KAFKA_CONSUMER_MAX_BYTES", defaultConsumerMaxBytes)
 	commitIntervalMs := getEnvIntWithDefault("KAFKA_CONSUMER_COMMIT_INTERVAL_MS", int(defaultConsumerCommitInterval/time.Millisecond))
@@ -181,7 +181,7 @@ func loadSecurityConfig(errs *[]error) *SecurityConfig {
 	}
 }
 
-func loadRetryConfig(errs *[]error) *RetryConfig {
+func loadRetryConfig() *RetryConfig {
 	shortAttempts := getEnvIntWithDefault("KAFKA_RETRY_SHORT_ATTEMPTS", defaultShortRetryAttempts)
 	initialBackoffMs := getEnvIntWithDefault("KAFKA_RETRY_INITIAL_BACKOFF_MS", 100)
 	maxBackoffMs := getEnvIntWithDefault("KAFKA_RETRY_MAX_BACKOFF_MS", 1000)
