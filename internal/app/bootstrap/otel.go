@@ -19,7 +19,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
-func InitObservability(ctx context.Context, obsCfg *cfg.ObservabilityConfig, samplerRatio float64) (func(context.Context) error, error) {
+func InitOtel(ctx context.Context, obsCfg *cfg.OtelConfig, samplerRatio float64) (func(context.Context) error, error) {
 	res, err := resource.New(ctx,
 		resource.WithAttributes(semconv.ServiceNameKey.String(obsCfg.ServiceName)),
 	)
@@ -63,7 +63,7 @@ func InitObservability(ctx context.Context, obsCfg *cfg.ObservabilityConfig, sam
 	return shutdown, nil
 }
 
-func setupMetrics(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resource.Resource) (*metric.MeterProvider, error) {
+func setupMetrics(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource) (*metric.MeterProvider, error) {
 	exporter, err := otlpmetricgrpc.New(ctx,
 		otlpmetricgrpc.WithEndpoint(cfg.OTLPEndpoint),
 		otlpmetricgrpc.WithInsecure(),
@@ -81,7 +81,7 @@ func setupMetrics(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resour
 	return provider, nil
 }
 
-func setupLogs(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resource.Resource) (*sdklog.LoggerProvider, error) {
+func setupLogs(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource) (*sdklog.LoggerProvider, error) {
 	exporter, err := otlploggrpc.New(ctx,
 		otlploggrpc.WithEndpoint(cfg.OTLPEndpoint),
 		otlploggrpc.WithInsecure(),
@@ -99,7 +99,7 @@ func setupLogs(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resource.
 	return provider, nil
 }
 
-func setupTracing(ctx context.Context, cfg *cfg.ObservabilityConfig, res *resource.Resource, samplerRatio float64) (*sdktrace.TracerProvider, error) {
+func setupTracing(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource, samplerRatio float64) (*sdktrace.TracerProvider, error) {
 	exporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint),
 		otlptracegrpc.WithInsecure(),

@@ -7,7 +7,7 @@ type Config struct {
 	Redis           RedisConfig
 	Postgres        PostgresConfig
 	OAuth2          Oauth2Config
-	Observability   ObservabilityConfig
+	Observability   OtelConfig
 	Kafka           *KafkaConfig
 	HTTPServer      HTTPServerConfig
 	ShutdownTimeout time.Duration
@@ -21,7 +21,7 @@ func Load() (*Config, error) {
 		Redis:           l.loadRedis(),
 		OAuth2:          l.loadOAuth2(),
 		Postgres:        l.loadPostgres(),
-		Observability:   l.loadObservability(),
+		Observability:   l.loadOtel(),
 		Kafka:           l.loadKafka(),
 		HTTPServer:      l.loadHTTPServer(),
 		ShutdownTimeout: l.requireDuration("SHUTDOWN_TIMEOUT"),

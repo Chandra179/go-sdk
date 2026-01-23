@@ -31,7 +31,6 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │   ├── logger/                        # Zerolog wrapper & helpers
 │   ├── oauth2/                        # OAuth2 manager & token helpers
 │   ├── passkey/                       # Passkey/WebAuthn utilities
-│   └── validator/                     # Input validation utilities
 │
 ├── db/                                # Database-related files
 │   └── migrations/                    # SQL migration files
@@ -44,7 +43,7 @@ This project is a Go template demonstrating reusable packages and runnable examp
 ├── cfg/                               # Centralized config loading
 │   └── config.go
 │
-├── observability/                     # Monitoring & tracing configs
+├── otel/                     # Monitoring & tracing configs
 │   ├── config.alloy                   # Alloy OTel config
 │   ├── loki.yaml                      # Loki logging config
 │   ├── prometheus.yml                 # Prometheus metrics config

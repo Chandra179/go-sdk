@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"gosdk/cfg"
-	"gosdk/pkg/validator"
 
 	"github.com/gin-gonic/gin"
 )
@@ -36,12 +35,7 @@ func (h *Handler) LoginHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": validator.ErrInvalidInput.Error()})
-			return
-		}
-
-		if err := validator.ValidateProvider(req.Provider); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "err request body"})
 			return
 		}
 

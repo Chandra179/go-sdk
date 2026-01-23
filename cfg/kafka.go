@@ -23,6 +23,18 @@ const (
 	defaultConsumerWatchPartitionChanges = true
 )
 
+const (
+	validCompressionNone   = "none"
+	validCompressionGzip   = "gzip"
+	validCompressionSnappy = "snappy"
+	validCompressionLz4    = "lz4"
+	validCompressionZstd   = "zstd"
+
+	validAcksAll    = "all"
+	validAcksNone   = "none"
+	validAcksLeader = "leader"
+)
+
 type RetryConfig struct {
 	MaxRetries           int64
 	InitialBackoff       int64
@@ -230,15 +242,3 @@ func validateFileExists(filepath string) error {
 	}
 	return nil
 }
-
-const (
-	validCompressionNone   = "none"
-	validCompressionGzip   = "gzip"
-	validCompressionSnappy = "snappy"
-	validCompressionLz4    = "lz4"
-	validCompressionZstd   = "zstd"
-
-	validAcksAll    = "all"
-	validAcksNone   = "none"
-	validAcksLeader = "leader"
-)

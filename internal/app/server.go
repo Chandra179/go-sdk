@@ -42,7 +42,7 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 		config: config,
 	}
 
-	shutdown, err := bootstrap.InitObservability(ctx, &config.Observability, config.Observability.SamplerRatio)
+	shutdown, err := bootstrap.InitOtel(ctx, &config.Observability, config.Observability.SamplerRatio)
 	if err != nil {
 		return nil, fmt.Errorf("observability setup: %w", err)
 	}
