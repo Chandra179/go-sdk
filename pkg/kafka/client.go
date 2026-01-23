@@ -3,20 +3,28 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"gosdk/cfg"
 	"sync"
+	"time"
 
 	kafkago "github.com/segmentio/kafka-go"
 )
 
+// KafkaClient provides lazy initialization for Kafka producers and consumers.
+// The producer and consumers are only created when first accessed to optimize
+// resource usage and startup performance.
 type KafkaClient struct {
 	config    *Config
 	brokers   []string
 	dialer    *kafkago.Dialer
-	producer  *KafkaProducer
-	consumers map[string]*KafkaConsumer
+	producer  *KafkaProducer            // lazily initialized singleton producer
+	consumers map[string]*KafkaConsumer // lazily initialized consumers by group ID
 	mu        sync.RWMutex
 }
 
+// NewClient creates a new Kafka client without initializing producer or consumers.
+// Producer and consumers are lazily initialized on first access to avoid
+// unnecessary resource allocation and connection overhead.
 func NewClient(cfg *Config) (Client, error) {
 	dialer, err := CreateDialer(&cfg.Security)
 	if err != nil {
@@ -31,6 +39,8 @@ func NewClient(cfg *Config) (Client, error) {
 	}, nil
 }
 
+// Producer returns a lazily initialized singleton producer instance.
+// The producer is created only on first call to optimize startup performance.
 func (c *KafkaClient) Producer() (Producer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -42,6 +52,8 @@ func (c *KafkaClient) Producer() (Producer, error) {
 	return c.producer, nil
 }
 
+// Consumer returns a lazily initialized consumer for the specified group ID.
+// Creates a new consumer instance only if one doesn't already exist for the group ID.
 func (c *KafkaClient) Consumer(groupID string) (Consumer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -87,4 +99,80 @@ func (c *KafkaClient) Ping(ctx context.Context) error {
 	defer conn.Close()
 
 	return nil
+}
+
+type Config struct {
+	Brokers  []string
+	Producer ProducerConfig
+	Consumer ConsumerConfig
+	Security SecurityConfig
+	Retry    RetryConfig
+}
+
+type ProducerConfig struct {
+	RequiredAcks    string
+	BatchSize       int
+	LingerMs        int
+	CompressionType string
+	MaxAttempts     int
+	Async           bool
+	CommitInterval  time.Duration
+}
+
+type ConsumerConfig struct {
+	MinBytes              int64
+	MaxBytes              int64
+	CommitInterval        time.Duration
+	MaxPollRecords        int
+	HeartbeatInterval     time.Duration
+	SessionTimeout        time.Duration
+	WatchPartitionChanges bool
+}
+
+type SecurityConfig struct {
+	Enabled     bool
+	TLSCertFile string
+	TLSKeyFile  string
+	TLSCAFile   string
+}
+
+// NewConfig creates a new Kafka Config from the central configuration
+func NewConfig(cfg *cfg.KafkaConfig) *Config {
+	return &Config{
+		Brokers: cfg.Brokers,
+		Producer: ProducerConfig{
+			RequiredAcks:    cfg.Producer.RequiredAcks,
+			BatchSize:       cfg.Producer.BatchSize,
+			LingerMs:        cfg.Producer.LingerMs,
+			CompressionType: cfg.Producer.CompressionType,
+			MaxAttempts:     cfg.Producer.MaxAttempts,
+			Async:           cfg.Producer.Async,
+			CommitInterval:  cfg.Producer.CommitInterval,
+		},
+		Consumer: ConsumerConfig{
+			MinBytes:              cfg.Consumer.MinBytes,
+			MaxBytes:              cfg.Consumer.MaxBytes,
+			CommitInterval:        cfg.Consumer.CommitInterval,
+			MaxPollRecords:        cfg.Consumer.MaxPollRecords,
+			HeartbeatInterval:     cfg.Consumer.HeartbeatInterval,
+			SessionTimeout:        cfg.Consumer.SessionTimeout,
+			WatchPartitionChanges: cfg.Consumer.WatchPartitionChanges,
+		},
+		Security: SecurityConfig{
+			Enabled:     cfg.Security.Enabled,
+			TLSCertFile: cfg.Security.TLSCertFile,
+			TLSKeyFile:  cfg.Security.TLSKeyFile,
+			TLSCAFile:   cfg.Security.TLSCAFile,
+		},
+		Retry: RetryConfig{
+			MaxRetries:           cfg.Retry.MaxRetries,
+			InitialBackoff:       cfg.Retry.InitialBackoff,
+			MaxBackoff:           cfg.Retry.MaxBackoff,
+			DLQEnabled:           cfg.Retry.DLQEnabled,
+			DLQTopicPrefix:       cfg.Retry.DLQTopicPrefix,
+			ShortRetryAttempts:   cfg.Retry.ShortRetryAttempts,
+			MaxLongRetryAttempts: cfg.Retry.MaxLongRetryAttempts,
+			RetryTopicSuffix:     cfg.Retry.RetryTopicSuffix,
+		},
+	}
 }
