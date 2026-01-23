@@ -60,6 +60,20 @@ services:
     networks:
       - app-network
 
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8090:8080" # Access at http://localhost:8090
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - app-network
+    depends_on:
+      - kafka
+
   postgres:
     image: postgres:15-alpine
     container_name: postgres

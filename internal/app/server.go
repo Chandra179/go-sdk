@@ -68,6 +68,11 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 		return nil, fmt.Errorf("oauth2 init: %w", err)
 	}
 
+	s.kafkaClient, err = bootstrap.InitKafka(config.Kafka)
+	if err != nil {
+		return nil, fmt.Errorf("kafka init: %w", err)
+	}
+
 	s.initServices()
 	s.setupRoutes()
 

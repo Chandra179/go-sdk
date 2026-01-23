@@ -9,6 +9,18 @@ import (
 	kafkacompress "github.com/segmentio/kafka-go/compress"
 )
 
+const (
+	validCompressionNone   = "none"
+	validCompressionGzip   = "gzip"
+	validCompressionSnappy = "snappy"
+	validCompressionLz4    = "lz4"
+	validCompressionZstd   = "zstd"
+
+	validAcksAll    = "all"
+	validAcksNone   = "none"
+	validAcksLeader = "leader"
+)
+
 type KafkaProducer struct {
 	writer          *kafkago.Writer
 	compressionType string
