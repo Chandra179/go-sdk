@@ -96,7 +96,7 @@ func setupLogs(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource)
 		otlploggrpc.WithInsecure(),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create otlp log exporter: %w", err)
 	}
 
 	provider := sdklog.NewLoggerProvider(
@@ -114,7 +114,7 @@ func setupTracing(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resour
 		otlptracegrpc.WithInsecure(),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create otlp trace exporter: %w", err)
 	}
 
 	sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplerRatio))
