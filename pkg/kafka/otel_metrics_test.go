@@ -31,7 +31,10 @@ func TestOtelMetricsHelperFunctions(t *testing.T) {
 func TestRecordProducerMessageSent(t *testing.T) {
 	t.Run("records producer message sent metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		err := InitOtelMetrics()
+		if err != nil {
+			t.Errorf("InitOtelMetrics() returned error: %v", err)
+		}
 
 		ctx := context.Background()
 		topic := "test-topic"
@@ -45,7 +48,10 @@ func TestRecordProducerMessageSent(t *testing.T) {
 func TestRecordProducerSendError(t *testing.T) {
 	t.Run("records producer send error metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		err := InitOtelMetrics()
+		if err != nil {
+			t.Errorf("InitOtelMetrics() returned error: %v", err)
+		}
 
 		ctx := context.Background()
 		topic := "test-topic"
@@ -59,7 +65,10 @@ func TestRecordProducerSendError(t *testing.T) {
 func TestRecordProducerSendLatency(t *testing.T) {
 	t.Run("records producer send latency metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		err := InitOtelMetrics()
+		if err != nil {
+			t.Errorf("InitOtelMetrics() returned error: %v", err)
+		}
 
 		ctx := context.Background()
 		topic := "test-topic"
@@ -73,7 +82,10 @@ func TestRecordProducerSendLatency(t *testing.T) {
 func TestRecordConsumerMessageProcessed(t *testing.T) {
 	t.Run("records consumer message processed metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		err := InitOtelMetrics()
+		if err != nil {
+			t.Errorf("InitOtelMetrics() returned error: %v", err)
+		}
 
 		ctx := context.Background()
 		topic := "test-topic"
@@ -87,7 +99,10 @@ func TestRecordConsumerMessageProcessed(t *testing.T) {
 func TestRecordConsumerProcessingError(t *testing.T) {
 	t.Run("records consumer processing error metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		err := InitOtelMetrics()
+		if err != nil {
+			t.Errorf("InitOtelMetrics() returned error: %v", err)
+		}
 
 		ctx := context.Background()
 		topic := "test-topic"
@@ -101,7 +116,10 @@ func TestRecordConsumerProcessingError(t *testing.T) {
 func TestRecordConsumerLag(t *testing.T) {
 	t.Run("records consumer lag metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		err := InitOtelMetrics()
+		if err != nil {
+			t.Errorf("InitOtelMetrics() returned error: %v", err)
+		}
 
 		ctx := context.Background()
 		topic := "test-topic"
@@ -117,7 +135,10 @@ func TestRecordConsumerLag(t *testing.T) {
 func TestRecordConsumerRebalanceEvent(t *testing.T) {
 	t.Run("records consumer rebalance event metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		err := InitOtelMetrics()
+		if err != nil {
+			t.Errorf("InitOtelMetrics() returned error: %v", err)
+		}
 
 		ctx := context.Background()
 		groupID := "test-group"
@@ -131,7 +152,10 @@ func TestRecordConsumerRebalanceEvent(t *testing.T) {
 func TestRecordDLQMessageSent(t *testing.T) {
 	t.Run("records DLQ message sent metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		err := InitOtelMetrics()
+		if err != nil {
+			t.Errorf("InitOtelMetrics() returned error: %v", err)
+		}
 
 		ctx := context.Background()
 		originalTopic := "test-topic"
@@ -145,7 +169,10 @@ func TestRecordDLQMessageSent(t *testing.T) {
 func TestRecordRetryMessageSent(t *testing.T) {
 	t.Run("records retry message sent metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		err := InitOtelMetrics()
+		if err != nil {
+			t.Errorf("InitOtelMetrics() returned error: %v", err)
+		}
 
 		ctx := context.Background()
 		originalTopic := "test-topic"
