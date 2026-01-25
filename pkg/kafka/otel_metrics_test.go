@@ -11,7 +11,9 @@ import (
 func TestRecordProducerMessageSent(t *testing.T) {
 	t.Run("records producer message sent metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		if err := InitOtelMetrics(); err != nil {
+			t.Fatalf("Failed to initialize metrics: %v", err)
+		}
 
 		ctx := context.Background()
 		topic := "test-topic"
@@ -25,7 +27,9 @@ func TestRecordProducerMessageSent(t *testing.T) {
 func TestRecordProducerSendError(t *testing.T) {
 	t.Run("records producer send error metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		if err := InitOtelMetrics(); err != nil {
+			t.Fatalf("Failed to initialize metrics: %v", err)
+		}
 
 		ctx := context.Background()
 		topic := "test-topic"
@@ -39,7 +43,9 @@ func TestRecordProducerSendError(t *testing.T) {
 func TestRecordProducerSendLatency(t *testing.T) {
 	t.Run("records producer send latency metric", func(t *testing.T) {
 		otel.SetMeterProvider(noop.NewMeterProvider())
-		InitOtelMetrics()
+		if err := InitOtelMetrics(); err != nil {
+			t.Fatalf("Failed to initialize metrics: %v", err)
+		}
 
 		ctx := context.Background()
 		topic := "test-topic"

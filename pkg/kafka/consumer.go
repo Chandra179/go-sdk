@@ -47,6 +47,9 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 	ctx, cancel := context.WithCancel(ctx)
 	c.cancel = cancel
 
+	// Record rebalance event for subscribe start
+	RecordConsumerRebalanceEvent(ctx, c.groupID, "subscribe_start")
+
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
