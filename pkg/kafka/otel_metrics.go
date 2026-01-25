@@ -3,7 +3,6 @@ package kafka
 import (
 	"context"
 	"errors"
-	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -142,9 +141,9 @@ func RecordProducerSendError(ctx context.Context, topic string, errorType string
 }
 
 // RecordProducerSendLatency records a producer send latency metric
-func RecordProducerSendLatency(ctx context.Context, topic string, duration time.Duration) {
+func RecordProducerSendLatency(ctx context.Context, topic string, durationSeconds float64) {
 	if OtelProducerSendLatency != nil {
-		OtelProducerSendLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(
+		OtelProducerSendLatency.Record(ctx, durationSeconds, metric.WithAttributes(
 			attribute.String("topic", topic),
 		))
 	}
