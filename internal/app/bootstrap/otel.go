@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -64,16 +65,24 @@ func InitOtel(ctx context.Context, obsCfg *cfg.OtelConfig, samplerRatio float64)
 }
 
 func setupMetrics(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource) (*metric.MeterProvider, error) {
-	exporter, err := otlpmetricgrpc.New(ctx,
+	// Create Prometheus exporter
+	promExporter, err := prometheus.New()
+	if err != nil {
+		return nil, fmt.Errorf("create prometheus exporter: %w", err)
+	}
+
+	// Create OTLP exporter (keep for other metrics)
+	otlpExporter, err := otlpmetricgrpc.New(ctx,
 		otlpmetricgrpc.WithEndpoint(cfg.OTLPEndpoint),
 		otlpmetricgrpc.WithInsecure(),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create otlp exporter: %w", err)
 	}
 
 	provider := metric.NewMeterProvider(
-		metric.WithReader(metric.NewPeriodicReader(exporter)),
+		metric.WithReader(metric.NewPeriodicReader(otlpExporter)),
+		metric.WithReader(promExporter), // Add Prometheus reader
 		metric.WithResource(res),
 	)
 	otel.SetMeterProvider(provider)
