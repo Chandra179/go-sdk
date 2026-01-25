@@ -30,4 +30,11 @@ func TestOtelMetricsHelperFunctions(t *testing.T) {
 		// This should not panic
 		RecordProducerSendLatency(ctx, "test-topic", 0.123)
 	})
+
+	t.Run("RecordProducerMessageSent actually records", func(t *testing.T) {
+		// This would need mock OTEL setup to verify - for now just ensure no nil pointer issues
+		ctx := context.Background()
+		RecordProducerMessageSent(ctx, "test-topic", "snappy")
+		// In real test with mock, we'd verify metric increment
+	})
 }

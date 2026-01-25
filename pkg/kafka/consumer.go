@@ -3,9 +3,10 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"gosdk/pkg/logger"
 
 	kafkago "github.com/segmentio/kafka-go"
 )
@@ -15,9 +16,10 @@ type KafkaConsumer struct {
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	groupID string
+	logger  logger.Logger
 }
 
-func NewKafkaConsumer(cfg *ConsumerConfig, brokers []string, groupID string, dialer *kafkago.Dialer) *KafkaConsumer {
+func NewKafkaConsumer(cfg *ConsumerConfig, brokers []string, groupID string, dialer *kafkago.Dialer, logger logger.Logger) *KafkaConsumer {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:               brokers,
 		GroupID:               groupID,
@@ -28,22 +30,17 @@ func NewKafkaConsumer(cfg *ConsumerConfig, brokers []string, groupID string, dia
 		HeartbeatInterval:     cfg.HeartbeatInterval,
 		SessionTimeout:        cfg.SessionTimeout,
 		Dialer:                dialer,
-		Logger:                kafkago.LoggerFunc(logf),
-		ErrorLogger:           kafkago.LoggerFunc(logError),
 	})
 
 	return &KafkaConsumer{
 		reader:  reader,
 		groupID: groupID,
+		logger:  logger,
 	}
 }
 
-func logf(msg string, a ...interface{}) {
-	log.Printf(msg, a...)
-}
-
-func logError(msg string, a ...interface{}) {
-	log.Printf(msg, a...)
+func (c *KafkaConsumer) logError(ctx context.Context, msg string, fields ...logger.Field) {
+	c.logger.Error(ctx, msg, fields...)
 }
 
 func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler ConsumerHandler) error {
@@ -79,13 +76,18 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 				}
 
 				if err := handler(message); err != nil {
-					logError("Error handling message: %v, topic: %s, partition: %d, offset: %d\n",
-						err, msg.Topic, msg.Partition, msg.Offset)
+					c.logError(ctx, "Error handling message",
+						logger.Field{Key: "error", Value: err},
+						logger.Field{Key: "topic", Value: msg.Topic},
+						logger.Field{Key: "partition", Value: msg.Partition},
+						logger.Field{Key: "offset", Value: msg.Offset})
 					continue
 				}
 
 				if err := c.reader.CommitMessages(ctx, msg); err != nil {
-					logError("Error committing message: %v, offset: %d\n", err, msg.Offset)
+					c.logError(ctx, "Error committing message",
+						logger.Field{Key: "error", Value: err},
+						logger.Field{Key: "offset", Value: msg.Offset})
 				}
 			}
 		}
@@ -108,6 +110,7 @@ func (c *KafkaConsumer) Close() error {
 func StartConsumer(
 	ctx context.Context,
 	client Client,
+	logger logger.Logger,
 	groupID string,
 	topics []string,
 	handler ConsumerHandler,
@@ -138,7 +141,7 @@ func StartConsumer(
 		if shouldSendToDLQ(retryCount, config.MaxLongRetryAttempts) {
 			if config.DLQEnabled {
 				dlqTopic := msg.Topic + config.DLQTopicPrefix
-				if dlqErr := SendToDLQ(ctx, client, dlqTopic, msg, lastErr); dlqErr != nil {
+				if dlqErr := SendToDLQ(ctx, client, logger, dlqTopic, msg, lastErr); dlqErr != nil {
 					return fmt.Errorf("handler error: %w, DLQ error: %w", lastErr, dlqErr)
 				}
 				return nil
@@ -151,7 +154,8 @@ func StartConsumer(
 			firstFailedAt = time.Now()
 		}
 
-		if retryErr := SendToRetryTopic(ctx, client, retryTopic, msg, lastErr, retryCount+1, firstFailedAt); retryErr != nil {
+		if retryErr := SendToRetryTopic(ctx, client, logger, retryTopic, msg, lastErr,
+			retryCount+1, firstFailedAt); retryErr != nil {
 			return fmt.Errorf("handler error: %w, retry topic error: %w", lastErr, retryErr)
 		}
 
