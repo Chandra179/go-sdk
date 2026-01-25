@@ -43,10 +43,40 @@ func (c *KafkaConsumer) logError(ctx context.Context, msg string, fields ...logg
 	c.logger.Error(ctx, msg, fields...)
 }
 
-func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler ConsumerHandler) error {
-	// Record consumer rebalance event
-	RecordConsumerRebalanceEvent(ctx, c.groupID, "subscribe_start")
+// safeRecordConsumerLag records consumer lag metric with graceful error handling
+func (c *KafkaConsumer) safeRecordConsumerLag(ctx context.Context, topic string, partition int32, lag int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Log recovery but don't crash consumer
+			c.logError(ctx, "Recovered from panic in RecordConsumerLag", logger.Field{Key: "panic", Value: r})
+		}
+	}()
+	RecordConsumerLag(ctx, topic, partition, c.groupID, lag)
+}
 
+// safeRecordConsumerProcessingError records consumer processing error metric with graceful error handling
+func (c *KafkaConsumer) safeRecordConsumerProcessingError(ctx context.Context, topic, errorType string) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Log recovery but don't crash consumer
+			c.logError(ctx, "Recovered from panic in RecordConsumerProcessingError", logger.Field{Key: "panic", Value: r})
+		}
+	}()
+	RecordConsumerProcessingError(ctx, topic, errorType)
+}
+
+// safeRecordConsumerMessageProcessed records consumer message processed metric with graceful error handling
+func (c *KafkaConsumer) safeRecordConsumerMessageProcessed(ctx context.Context, topic string) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Log recovery but don't crash consumer
+			c.logError(ctx, "Recovered from panic in RecordConsumerMessageProcessed", logger.Field{Key: "panic", Value: r})
+		}
+	}()
+	RecordConsumerMessageProcessed(ctx, topic, c.groupID)
+}
+
+func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler ConsumerHandler) error {
 	ctx, cancel := context.WithCancel(ctx)
 	c.cancel = cancel
 
@@ -66,9 +96,9 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 					continue
 				}
 
-				// Record consumer lag (current lag)
+				// Record consumer lag (current lag) with graceful error handling
 				if lag := c.reader.Lag(); lag >= 0 {
-					RecordConsumerLag(ctx, msg.Topic, int32(msg.Partition), c.groupID, lag)
+					c.safeRecordConsumerLag(ctx, msg.Topic, int32(msg.Partition), lag)
 				}
 
 				headers := make(map[string]string)
@@ -84,8 +114,8 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 				}
 
 				if err := handler(message); err != nil {
-					// Record consumer processing error
-					RecordConsumerProcessingError(ctx, msg.Topic, "handler_error")
+					// Record consumer processing error with graceful error handling
+					c.safeRecordConsumerProcessingError(ctx, msg.Topic, "handler_error")
 					c.logError(ctx, "Error handling message",
 						logger.Field{Key: "error", Value: err},
 						logger.Field{Key: "topic", Value: msg.Topic},
@@ -94,8 +124,8 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 					continue
 				}
 
-				// Record successful message processing
-				RecordConsumerMessageProcessed(ctx, msg.Topic, c.groupID)
+				// Record successful message processing with graceful error handling
+				c.safeRecordConsumerMessageProcessed(ctx, msg.Topic)
 
 				if err := c.reader.CommitMessages(ctx, msg); err != nil {
 					c.logError(ctx, "Error committing message",
