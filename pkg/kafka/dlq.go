@@ -3,9 +3,10 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
+
+	log "gosdk/pkg/logger"
 )
 
 const (
@@ -19,16 +20,20 @@ const (
 func SendToRetryTopic(
 	ctx context.Context,
 	client Client,
+	logger log.Logger,
 	retryTopic string,
 	originalMsg Message,
 	handlerErr error,
 	retryCount int,
 	firstFailedAt time.Time,
 ) error {
-	log.Printf("Sending message to retry topic: error=%v, original_topic=%s, retry_topic=%s, retry_count=%d",
-		handlerErr, originalMsg.Topic, retryTopic, retryCount)
+	logger.Info(ctx, "Sending message to retry topic",
+		log.Field{Key: "error", Value: handlerErr},
+		log.Field{Key: "original_topic", Value: originalMsg.Topic},
+		log.Field{Key: "retry_topic", Value: retryTopic},
+		log.Field{Key: "retry_count", Value: retryCount})
 
-	RetryMessagesSent.WithLabelValues(originalMsg.Topic, retryTopic).Inc()
+	RecordRetryMessageSent(ctx, originalMsg.Topic, retryTopic)
 
 	producer, err := client.Producer()
 	if err != nil {
@@ -58,14 +63,17 @@ func SendToRetryTopic(
 func SendToDLQ(
 	ctx context.Context,
 	client Client,
+	logger log.Logger,
 	topic string,
 	originalMsg Message,
 	handlerErr error,
 ) error {
-	log.Printf("Sending message to DLQ: error=%v, original_topic=%s, dlq_topic=%s",
-		handlerErr, originalMsg.Topic, topic)
+	logger.Info(ctx, "Sending message to DLQ",
+		log.Field{Key: "error", Value: handlerErr},
+		log.Field{Key: "original_topic", Value: originalMsg.Topic},
+		log.Field{Key: "dlq_topic", Value: topic})
 
-	DLQMessagesSent.WithLabelValues(originalMsg.Topic, topic).Inc()
+	RecordDLQMessageSent(ctx, originalMsg.Topic, topic)
 
 	producer, err := client.Producer()
 	if err != nil {
