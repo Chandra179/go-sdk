@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"gosdk/cfg"
+	"gosdk/pkg/logger"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ type KafkaClient struct {
 	config    *Config
 	brokers   []string
 	dialer    *kafkago.Dialer
+	logger    logger.Logger
 	producer  *KafkaProducer            // lazily initialized singleton producer
 	consumers map[string]*KafkaConsumer // lazily initialized consumers by group ID
 	mu        sync.RWMutex
@@ -25,7 +27,7 @@ type KafkaClient struct {
 // NewClient creates a new Kafka client without initializing producer or consumers.
 // Producer and consumers are lazily initialized on first access to avoid
 // unnecessary resource allocation and connection overhead.
-func NewClient(cfg *Config) (Client, error) {
+func NewClient(cfg *Config, logger logger.Logger) (Client, error) {
 	dialer, err := CreateDialer(&cfg.Security)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create dialer: %w", err)
@@ -35,6 +37,7 @@ func NewClient(cfg *Config) (Client, error) {
 		config:    cfg,
 		brokers:   cfg.Brokers,
 		dialer:    dialer,
+		logger:    logger,
 		consumers: make(map[string]*KafkaConsumer),
 	}, nil
 }
@@ -46,7 +49,7 @@ func (c *KafkaClient) Producer() (Producer, error) {
 	defer c.mu.Unlock()
 
 	if c.producer == nil {
-		c.producer = NewKafkaProducer(&c.config.Producer, c.brokers, c.dialer)
+		c.producer = NewKafkaProducer(&c.config.Producer, c.brokers, c.dialer, c.logger)
 	}
 
 	return c.producer, nil
@@ -59,7 +62,7 @@ func (c *KafkaClient) Consumer(groupID string) (Consumer, error) {
 	defer c.mu.Unlock()
 
 	if _, exists := c.consumers[groupID]; !exists {
-		consumer := NewKafkaConsumer(&c.config.Consumer, c.brokers, groupID, c.dialer)
+		consumer := NewKafkaConsumer(&c.config.Consumer, c.brokers, groupID, c.dialer, c.logger)
 		c.consumers[groupID] = consumer
 	}
 
@@ -96,7 +99,12 @@ func (c *KafkaClient) Ping(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrKafkaConnection, err)
 	}
-	defer conn.Close()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			// Log the close error but don't fail the original operation
+			_ = closeErr // TODO: Consider logging this
+		}
+	}()
 
 	return nil
 }

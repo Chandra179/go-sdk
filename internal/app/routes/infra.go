@@ -10,6 +10,7 @@ import (
 )
 
 func SetupInfra(r *gin.Engine, hc *health.Checker) {
+	// Use the legacy prometheus handler for now - this should be replaced with OTEL metrics
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	r.GET("/docs", docsHandler)
