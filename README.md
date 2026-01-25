@@ -27,7 +27,7 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │   ├── cache/                         # Cache interfaces, Redis helpers
 │   ├── db/                            # Database connectors, helpers
 │   ├── idgen/                         # ID generation utilities
-│   ├── kafka/                         # Kafka client and helpers
+│   ├── kafka/                         # Kafka client and helpers with OTEL metrics
 │   ├── logger/                        # Zerolog wrapper & helpers
 │   ├── oauth2/                        # OAuth2 manager & token helpers
 │   ├── passkey/                       # Passkey/WebAuthn utilities
