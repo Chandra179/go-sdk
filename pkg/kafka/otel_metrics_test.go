@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 func TestOtelMetricsHelperFunctions(t *testing.T) {
@@ -12,29 +14,58 @@ func TestOtelMetricsHelperFunctions(t *testing.T) {
 		err := InitOtelMetrics()
 		require.NoError(t, err)
 	})
-
 	t.Run("RecordProducerMessageSent", func(t *testing.T) {
 		ctx := context.Background()
-		// This should not panic
 		RecordProducerMessageSent(ctx, "test-topic", "snappy")
 	})
-
 	t.Run("RecordProducerSendError", func(t *testing.T) {
 		ctx := context.Background()
-		// This should not panic
 		RecordProducerSendError(ctx, "test-topic", "timeout")
 	})
-
 	t.Run("RecordProducerSendLatency", func(t *testing.T) {
 		ctx := context.Background()
-		// This should not panic
 		RecordProducerSendLatency(ctx, "test-topic", 0.123)
 	})
+}
 
-	t.Run("RecordProducerMessageSent actually records", func(t *testing.T) {
-		// This would need mock OTEL setup to verify - for now just ensure no nil pointer issues
+func TestRecordProducerMessageSent(t *testing.T) {
+	t.Run("records producer message sent metric", func(t *testing.T) {
+		otel.SetMeterProvider(noop.NewMeterProvider())
+		InitOtelMetrics()
+
 		ctx := context.Background()
-		RecordProducerMessageSent(ctx, "test-topic", "snappy")
-		// In real test with mock, we'd verify metric increment
+		topic := "test-topic"
+		compression := "gzip"
+
+		// Should not panic
+		RecordProducerMessageSent(ctx, topic, compression)
+	})
+}
+
+func TestRecordProducerSendError(t *testing.T) {
+	t.Run("records producer send error metric", func(t *testing.T) {
+		otel.SetMeterProvider(noop.NewMeterProvider())
+		InitOtelMetrics()
+
+		ctx := context.Background()
+		topic := "test-topic"
+		errorType := "connection_error"
+
+		// Should not panic
+		RecordProducerSendError(ctx, topic, errorType)
+	})
+}
+
+func TestRecordProducerSendLatency(t *testing.T) {
+	t.Run("records producer send latency metric", func(t *testing.T) {
+		otel.SetMeterProvider(noop.NewMeterProvider())
+		InitOtelMetrics()
+
+		ctx := context.Background()
+		topic := "test-topic"
+		durationSeconds := 0.1
+
+		// Should not panic
+		RecordProducerSendLatency(ctx, topic, durationSeconds)
 	})
 }
