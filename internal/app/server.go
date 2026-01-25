@@ -49,13 +49,13 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 	s.shutdown = shutdown
 
 	s.logger = logger.NewLogger(config.AppEnv)
+	s.logger.Info(ctx, "Initializing server...")
 
-	// Initialize Kafka OTEL metrics after OTEL setup but before Kafka client creation
+	// Initialize Kafka OTEL metrics after logger is available for proper logging
 	if err := kafka.InitOtelMetrics(); err != nil {
 		// Log warning but continue - metrics are non-critical
-		fmt.Printf("Warning: Failed to initialize Kafka metrics: %v\n", err)
+		s.logger.Warn(ctx, "Failed to initialize Kafka metrics", logger.Field{Key: "error", Value: err})
 	}
-	s.logger.Info(ctx, "Initializing server...")
 
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
