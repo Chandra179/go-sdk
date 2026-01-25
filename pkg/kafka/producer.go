@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	kafkago "github.com/segmentio/kafka-go"
 	kafkacompress "github.com/segmentio/kafka-go/compress"
+	"gosdk/pkg/logger"
 )
 
 const (
@@ -24,9 +24,10 @@ const (
 type KafkaProducer struct {
 	writer          *kafkago.Writer
 	compressionType string
+	logger          logger.Logger
 }
 
-func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dialer) *KafkaProducer {
+func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dialer, logger logger.Logger) *KafkaProducer {
 	acks := acksMap[cfg.RequiredAcks]
 	compression := kafkago.Compression(compressionCodeMap[cfg.CompressionType])
 
@@ -45,16 +46,21 @@ func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dia
 	return &KafkaProducer{
 		writer:          writer,
 		compressionType: cfg.CompressionType,
+		logger:          logger,
 	}
 }
 
 func (p *KafkaProducer) Publish(ctx context.Context, msg Message) error {
 	if p.writer == nil {
+		p.logger.Error(ctx, "Producer not initialized",
+			logger.Field{Key: "topic", Value: msg.Topic})
 		return ErrProducerNotInitialized
 	}
 
-	timer := prometheus.NewTimer(ProducerSendLatency.WithLabelValues(msg.Topic))
-	defer timer.ObserveDuration()
+	start := time.Now()
+	defer func() {
+		RecordProducerSendLatency(ctx, msg.Topic, time.Since(start).Seconds())
+	}()
 
 	kafkaMsg := kafkago.Message{
 		Topic: msg.Topic,
@@ -73,11 +79,18 @@ func (p *KafkaProducer) Publish(ctx context.Context, msg Message) error {
 
 	err := p.writer.WriteMessages(ctx, kafkaMsg)
 	if err != nil {
-		ProducerSendErrors.WithLabelValues(msg.Topic, "write_failed").Inc()
+		RecordProducerSendError(ctx, msg.Topic, "write_failed")
+		p.logger.Error(ctx, "Failed to publish message",
+			logger.Field{Key: "error", Value: err},
+			logger.Field{Key: "topic", Value: msg.Topic},
+			logger.Field{Key: "compression", Value: p.compressionType})
 		return err
 	}
 
-	ProducerMessagesSent.WithLabelValues(msg.Topic, p.compressionType).Inc()
+	RecordProducerMessageSent(ctx, msg.Topic, p.compressionType)
+	p.logger.Debug(ctx, "Message published successfully",
+		logger.Field{Key: "topic", Value: msg.Topic},
+		logger.Field{Key: "compression", Value: p.compressionType})
 	return nil
 }
 
