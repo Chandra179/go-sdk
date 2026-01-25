@@ -27,7 +27,7 @@ This project is a Go template demonstrating reusable packages and runnable examp
 │   ├── cache/                         # Cache interfaces, Redis helpers
 │   ├── db/                            # Database connectors, helpers
 │   ├── idgen/                         # ID generation utilities
-│   ├── kafka/                         # Kafka client and helpers with OTEL metrics
+│   ├── kafka/                         # Kafka client and helpers with OpenTelemetry metrics
 │   ├── logger/                        # Zerolog wrapper & helpers
 │   ├── oauth2/                        # OAuth2 manager & token helpers
 │   ├── passkey/                       # Passkey/WebAuthn utilities
@@ -65,3 +65,21 @@ This project is a Go template demonstrating reusable packages and runnable examp
 
 2. **`pkg/` folder**  
    - Contains **reusable packages** for core functionality.
+
+## OpenTelemetry Metrics
+
+This project includes OpenTelemetry metrics integration for the Kafka package. The metrics are automatically exposed at the `/metrics` endpoint and include:
+
+### Kafka Metrics
+- **Producer Metrics**: Message counts, error rates, and latency histograms
+- **Consumer Metrics**: Processing counts, error rates, consumer lag, and rebalance events
+- **DLQ/Retry Metrics**: Message routing counts for dead-letter queues and retry topics
+
+### Metrics Access
+Metrics are available in Prometheus exposition format at:
+```
+GET /metrics
+```
+
+### Configuration
+Metrics are automatically configured through OpenTelemetry SDK with Prometheus exporter. See `pkg/kafka/README.md` for detailed usage instructions.
