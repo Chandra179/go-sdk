@@ -48,13 +48,13 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 	}
 	s.shutdown = shutdown
 
+	s.logger = logger.NewLogger(config.AppEnv)
+
 	// Initialize Kafka OTEL metrics after OTEL setup but before Kafka client creation
 	if err := kafka.InitOtelMetrics(); err != nil {
-		s.logger.Warn(ctx, "Failed to initialize Kafka OTEL metrics", logger.Field{Key: "error", Value: err})
-		// Continue with startup - metrics failure should not crash the app
+		// Log warning but continue - metrics are non-critical
+		fmt.Printf("Warning: Failed to initialize Kafka metrics: %v\n", err)
 	}
-
-	s.logger = logger.NewLogger(config.AppEnv)
 	s.logger.Info(ctx, "Initializing server...")
 
 	dsn := fmt.Sprintf(
