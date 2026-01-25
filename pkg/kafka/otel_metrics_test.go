@@ -4,29 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric/noop"
 )
-
-func TestOtelMetricsHelperFunctions(t *testing.T) {
-	t.Run("InitOtelMetrics succeeds", func(t *testing.T) {
-		err := InitOtelMetrics()
-		require.NoError(t, err)
-	})
-	t.Run("RecordProducerMessageSent", func(t *testing.T) {
-		ctx := context.Background()
-		RecordProducerMessageSent(ctx, "test-topic", "snappy")
-	})
-	t.Run("RecordProducerSendError", func(t *testing.T) {
-		ctx := context.Background()
-		RecordProducerSendError(ctx, "test-topic", "timeout")
-	})
-	t.Run("RecordProducerSendLatency", func(t *testing.T) {
-		ctx := context.Background()
-		RecordProducerSendLatency(ctx, "test-topic", 0.123)
-	})
-}
 
 func TestRecordProducerMessageSent(t *testing.T) {
 	t.Run("records producer message sent metric", func(t *testing.T) {
