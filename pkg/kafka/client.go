@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gosdk/cfg"
 	"gosdk/pkg/logger"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ type KafkaClient struct {
 	logger    logger.Logger
 	producer  *KafkaProducer            // lazily initialized singleton producer
 	consumers map[string]*KafkaConsumer // lazily initialized consumers by group ID
+	topicMap  map[string][]string       // tracks topics per consumer group
 	mu        sync.RWMutex
 }
 
@@ -39,6 +41,7 @@ func NewClient(cfg *Config, logger logger.Logger) (Client, error) {
 		dialer:    dialer,
 		logger:    logger,
 		consumers: make(map[string]*KafkaConsumer),
+		topicMap:  make(map[string][]string),
 	}, nil
 }
 
@@ -55,18 +58,22 @@ func (c *KafkaClient) Producer() (Producer, error) {
 	return c.producer, nil
 }
 
-// Consumer returns a lazily initialized consumer for the specified group ID.
-// Creates a new consumer instance only if one doesn't already exist for the group ID.
-func (c *KafkaClient) Consumer(groupID string) (Consumer, error) {
+// Consumer returns a lazily initialized consumer for the specified group ID and topics.
+// Creates a new consumer instance only if one doesn't already exist for the group ID with the same topics.
+func (c *KafkaClient) Consumer(groupID string, topics []string) (Consumer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, exists := c.consumers[groupID]; !exists {
-		consumer := NewKafkaConsumer(&c.config.Consumer, c.brokers, groupID, c.dialer, c.logger)
-		c.consumers[groupID] = consumer
+	// Create a unique key for the consumer based on group ID and topics
+	consumerKey := groupID + ":" + strings.Join(topics, ",")
+
+	if _, exists := c.consumers[consumerKey]; !exists {
+		consumer := NewKafkaConsumer(&c.config.Consumer, c.brokers, groupID, topics, c.dialer, c.logger)
+		c.consumers[consumerKey] = consumer
+		c.topicMap[consumerKey] = topics
 	}
 
-	return c.consumers[groupID], nil
+	return c.consumers[consumerKey], nil
 }
 
 func (c *KafkaClient) Close() error {

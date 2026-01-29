@@ -32,7 +32,7 @@ type ConsumerHandler func(msg Message) error
 
 type Client interface {
 	Producer() (Producer, error)
-	Consumer(groupID string) (Consumer, error)
+	Consumer(groupID string, topics []string) (Consumer, error)
 	Ping(ctx context.Context) error
 	Close() error
 }
@@ -43,7 +43,7 @@ type Producer interface {
 }
 
 type Consumer interface {
-	Subscribe(ctx context.Context, topics []string, handler ConsumerHandler) error
+	Start(ctx context.Context, handler ConsumerHandler) error
 	Close() error
 }
 

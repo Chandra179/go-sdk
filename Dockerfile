@@ -2,28 +2,31 @@ FROM golang:latest AS builder
 
 WORKDIR /app
 
-# Download dependencies first (faster builds)
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
+# Install Delve in the builder stage
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+
 COPY . .
 
-# Build binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/myapp
+# IMPORTANT: Build with optimizations disabled (-N -l)
+RUN CGO_ENABLED=0 GOOS=linux go build -gcflags="all=-N -l" -o main ./cmd/myapp
 
 FROM alpine:latest
 
+# Use --no-cache to keep the image small
+RUN apk add --no-cache libc6-compat
+
 WORKDIR /app
 
-# Copy binary from builder
+# Copy binary AND the dlv tool from builder
 COPY --from=builder /app/main .
-
-# Copy migrations directory
+COPY --from=builder /go/bin/dlv /usr/local/bin/dlv
 COPY --from=builder /app/db/migrations ./db/migrations
 
-# Expose app ports (HTTP and gRPC)
-EXPOSE 8080 9090
+# Expose App ports and Delve port (40000)
+EXPOSE 8080 9090 40000
 
-# Run the server
-CMD ["./main"]
+# Run Delve in headless mode, which then starts your app
+CMD ["dlv", "--listen=:40000", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "./main"]

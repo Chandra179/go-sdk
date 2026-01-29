@@ -7,7 +7,7 @@ up:
 ba:
 	docker compose up --build -d
 
-b:
+bg:
 	docker compose up gosdk-app --build -d
 
 swag:

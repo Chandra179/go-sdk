@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -19,17 +18,19 @@ type KafkaConsumer struct {
 	logger  logger.Logger
 }
 
-func NewKafkaConsumer(cfg *ConsumerConfig, brokers []string, groupID string, dialer *kafkago.Dialer, logger logger.Logger) *KafkaConsumer {
+func NewKafkaConsumer(cfg *ConsumerConfig, brokers []string, groupID string, topics []string, dialer *kafkago.Dialer, logger logger.Logger) *KafkaConsumer {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:               brokers,
 		GroupID:               groupID,
+		GroupTopics:           topics,
 		MinBytes:              int(cfg.MinBytes),
 		MaxBytes:              int(cfg.MaxBytes),
 		CommitInterval:        cfg.CommitInterval,
 		WatchPartitionChanges: cfg.WatchPartitionChanges,
 		HeartbeatInterval:     cfg.HeartbeatInterval,
-		SessionTimeout:        cfg.SessionTimeout,
-		Dialer:                dialer,
+		// SessionTimeout:        cfg.SessionTimeout, // Let kafka-go use default
+		Dialer:      dialer,
+		StartOffset: kafkago.FirstOffset, // Read from beginning
 	})
 
 	return &KafkaConsumer{
@@ -43,12 +44,12 @@ func (c *KafkaConsumer) logError(ctx context.Context, msg string, fields ...logg
 	c.logger.Error(ctx, msg, fields...)
 }
 
-func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler ConsumerHandler) error {
+func (c *KafkaConsumer) Start(ctx context.Context, handler ConsumerHandler) error {
 	ctx, cancel := context.WithCancel(ctx)
 	c.cancel = cancel
 
-	// Record rebalance event for subscribe start
-	RecordConsumerRebalanceEvent(ctx, c.groupID, "subscribe_start")
+	// Record rebalance event for start
+	RecordConsumerRebalanceEvent(ctx, c.groupID, "start")
 
 	c.wg.Add(1)
 	go func() {
@@ -63,6 +64,7 @@ func (c *KafkaConsumer) Subscribe(ctx context.Context, topics []string, handler 
 					if ctx.Err() != nil {
 						return
 					}
+					c.logError(ctx, "FetchMessage error", logger.Field{Key: "error", Value: err})
 					continue
 				}
 
@@ -121,64 +123,6 @@ func (c *KafkaConsumer) Close() error {
 		return c.reader.Close()
 	}
 	return nil
-}
-
-func StartConsumer(
-	ctx context.Context,
-	client Client,
-	logger logger.Logger,
-	groupID string,
-	topics []string,
-	handler ConsumerHandler,
-	config RetryConfig,
-) error {
-	consumer, err := client.Consumer(groupID)
-	if err != nil {
-		return fmt.Errorf("failed to create consumer: %w", err)
-	}
-
-	wrappedHandler := func(msg Message) error {
-		retryCount := extractRetryCount(msg.Headers)
-		firstFailedAt := parseFirstFailedAt(msg.Headers)
-
-		shortRetryAttempts := config.ShortRetryAttempts
-		if shortRetryAttempts <= 0 {
-			shortRetryAttempts = defaultShortRetryAttempts
-		}
-
-		lastErr := RetryWithBackoff(ctx, int64(shortRetryAttempts), config.InitialBackoff, config.MaxBackoff, func() error {
-			return handler(msg)
-		})
-
-		if lastErr == nil {
-			return nil
-		}
-
-		if shouldSendToDLQ(retryCount, config.MaxLongRetryAttempts) {
-			if config.DLQEnabled {
-				dlqTopic := msg.Topic + config.DLQTopicPrefix
-				if dlqErr := SendToDLQ(ctx, client, logger, dlqTopic, msg, lastErr); dlqErr != nil {
-					return fmt.Errorf("handler error: %w, DLQ error: %w", lastErr, dlqErr)
-				}
-				return nil
-			}
-			return lastErr
-		}
-
-		retryTopic := msg.Topic + config.RetryTopicSuffix
-		if firstFailedAt.IsZero() {
-			firstFailedAt = time.Now()
-		}
-
-		if retryErr := SendToRetryTopic(ctx, client, logger, retryTopic, msg, lastErr,
-			retryCount+1, firstFailedAt); retryErr != nil {
-			return fmt.Errorf("handler error: %w, retry topic error: %w", lastErr, retryErr)
-		}
-
-		return nil
-	}
-
-	return consumer.Subscribe(ctx, topics, wrappedHandler)
 }
 
 func parseFirstFailedAt(headers map[string]string) time.Time {

@@ -1,158 +1,131 @@
-version: "3.9"
-
 services:
   gosdk-app:
     build: .
     container_name: gosdk-app
-    ports:
-      - "8080:8080"
-    env_file:
-      - .env
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      alloy:
-        condition: service_started
-      kafka:
-        condition: service_started
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
     networks:
       - app-network
 
   redis:
     image: redis:alpine
     container_name: redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    networks:
-      - app-network
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    container_name: zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "2181"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     networks:
       - app-network
 
   kafka:
-    image: confluentinc/cp-kafka:7.4.0
+    image: confluentinc/cp-kafka:7.6.0
     container_name: kafka
-    ports:
-      - "9092:9092"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_NODE_ID: 1
+      CLUSTER_ID: "OGY2YzdlMTk5OWFhNGEzZg"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    depends_on:
-      zookeeper:
-        condition: service_healthy
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
       - app-network
-
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
-    ports:
-      - "8090:8080" # Access at http://localhost:8090
-    environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
-    networks:
-      - app-network
-    depends_on:
-      - kafka
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15
     container_name: postgres
+    deploy:
+      resources:
+        limits:
+          memory: 600M
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: mydb
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "myuser"]
-      interval: 10s
+      # Robust check: -U is user, -d is database
+      test: ["CMD-SHELL", "pg_isready -U myuser -d mydb"]
+      interval: 5s
+      timeout: 5s
       retries: 5
       start_period: 10s
-      timeout: 5s
     networks:
       - app-network
 
   alloy:
-    image: grafana/alloy:latest
+    image: grafana/alloy:v1.2.0
     container_name: alloy
-    command: [
-      "run",
-      "--server.http.listen-addr=0.0.0.0:12345",
-      "/etc/alloy/config.alloy",
-    ]
+    deploy:
+      resources:
+        limits:
+          memory: 300M
     volumes:
-      - ./otel/config.alloy:/etc/alloy/config.alloy
-    ports:
-      - "12345:12345" # Alloy UI
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
+      - ./otel/config.alloy:/etc/alloy/config.alloy:ro
+    command: run /etc/alloy/config.alloy
     networks:
       - app-network
 
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 600M
     command:
       - --config.file=/etc/prometheus/prometheus.yml
-      - --web.enable-remote-write-receiver
-      - --enable-feature=exemplar-storage
-    volumes:
-      - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
-    ports:
-      - "9090:9090"
+      - --storage.tsdb.retention.time=1d
     networks:
       - app-network
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:2.9.10
     container_name: loki
-    command: -config.file=/etc/loki/config.yaml
+    deploy:
+      resources:
+        limits:
+          memory: 400M
     volumes:
-      - ./otel/loki.yaml:/etc/loki/config.yaml
-      - loki-data:/loki
-    ports:
-      - "3100:3100"
+      - ./otel/loki.yaml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
     networks:
       - app-network
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.4.3
     container_name: grafana
+    deploy:
+      resources:
+        limits:
+          memory: 400M
     ports:
       - "3000:3000"
-    environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
-      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
-    depends_on:
-      - prometheus
-      - loki
     volumes:
-      - grafana-data:/var/lib/grafana
-      - ./otel/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - ./otel/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
     networks:
       - app-network
 
@@ -166,5 +139,4 @@ volumes:
   prometheus-data:
   loki-data:
   grafana-data:
-  zookeeper-data:
   kafka-data:
