@@ -48,9 +48,6 @@ func (c *KafkaConsumer) Start(ctx context.Context, handler ConsumerHandler) erro
 	ctx, cancel := context.WithCancel(ctx)
 	c.cancel = cancel
 
-	// Record rebalance event for start
-	RecordConsumerRebalanceEvent(ctx, c.groupID, "start")
-
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
@@ -72,7 +69,7 @@ func (c *KafkaConsumer) Start(ctx context.Context, handler ConsumerHandler) erro
 				if c.reader != nil {
 					lag := c.reader.Lag()
 					if lag >= 0 {
-						RecordConsumerLag(ctx, msg.Topic, int32(msg.Partition), c.groupID, lag)
+						// log
 					}
 				}
 
@@ -89,8 +86,6 @@ func (c *KafkaConsumer) Start(ctx context.Context, handler ConsumerHandler) erro
 				}
 
 				if err := handler(message); err != nil {
-					// Record consumer processing error with simple error handling
-					RecordConsumerProcessingError(ctx, msg.Topic, "handler_error")
 					c.logError(ctx, "Error handling message",
 						logger.Field{Key: "error", Value: err},
 						logger.Field{Key: "topic", Value: msg.Topic},
@@ -98,9 +93,6 @@ func (c *KafkaConsumer) Start(ctx context.Context, handler ConsumerHandler) erro
 						logger.Field{Key: "offset", Value: msg.Offset})
 					continue
 				}
-
-				// Record successful message processing
-				RecordConsumerMessageProcessed(ctx, msg.Topic, c.groupID)
 
 				if err := c.reader.CommitMessages(ctx, msg); err != nil {
 					c.logError(ctx, "Error committing message",

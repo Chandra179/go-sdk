@@ -23,18 +23,19 @@ import (
 )
 
 type Server struct {
-	config        *cfg.Config
-	httpServer    *http.Server
-	router        *gin.Engine
-	logger        *logger.AppLogger
-	db            db.DB
-	cache         cache.Cache
-	sessionStore  session.Client
-	oauth2Manager *oauth2.Manager
-	authService   *auth.Service
-	kafkaClient   kafka.Client
-	shutdown      func(context.Context) error
-	httpShutdown  func(context.Context) error
+	config         *cfg.Config
+	httpServer     *http.Server
+	router         *gin.Engine
+	logger         *logger.AppLogger
+	db             db.DB
+	cache          cache.Cache
+	sessionStore   session.Client
+	oauth2Manager  *oauth2.Manager
+	authService    *auth.Service
+	kafkaClient    kafka.Client
+	shutdown       func(context.Context) error
+	httpShutdown   func(context.Context) error
+	metricsHandler http.Handler
 }
 
 func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
@@ -42,20 +43,15 @@ func NewServer(ctx context.Context, config *cfg.Config) (*Server, error) {
 		config: config,
 	}
 
-	shutdown, err := bootstrap.InitOtel(ctx, &config.Observability, config.Observability.SamplerRatio)
+	shutdown, metricsHandler, err := bootstrap.InitOtel(ctx, &config.Observability, config.Observability.SamplerRatio)
 	if err != nil {
 		return nil, fmt.Errorf("observability setup: %w", err)
 	}
 	s.shutdown = shutdown
+	s.metricsHandler = metricsHandler
 
 	s.logger = logger.NewLogger(config.AppEnv)
 	s.logger.Info(ctx, "Initializing server...")
-
-	// Initialize Kafka OTEL metrics after logger is available for proper logging
-	if err := kafka.InitOtelMetrics(); err != nil {
-		// Log warning but continue - metrics are non-critical
-		s.logger.Warn(ctx, "Failed to initialize Kafka metrics", logger.Field{Key: "error", Value: err})
-	}
 
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
@@ -113,7 +109,7 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.CORSMiddleware())
 
 	healthChecker := health.NewChecker(s.db, s.cache, s.kafkaClient, s.logger)
-	routes.SetupInfra(r, healthChecker)
+	routes.SetupInfra(r, healthChecker, s.metricsHandler)
 
 	authHandler := auth.NewHandler(s.authService, s.config)
 	routes.SetupAuth(r, authHandler, s.oauth2Manager)

@@ -33,8 +33,6 @@ func SendToRetryTopic(
 		log.Field{Key: "retry_topic", Value: retryTopic},
 		log.Field{Key: "retry_count", Value: retryCount})
 
-	RecordRetryMessageSent(ctx, originalMsg.Topic, retryTopic)
-
 	producer, err := client.Producer()
 	if err != nil {
 		return fmt.Errorf("failed to get producer for retry topic: %w", err)
@@ -72,8 +70,6 @@ func SendToDLQ(
 		log.Field{Key: "error", Value: handlerErr},
 		log.Field{Key: "original_topic", Value: originalMsg.Topic},
 		log.Field{Key: "dlq_topic", Value: topic})
-
-	RecordDLQMessageSent(ctx, originalMsg.Topic, topic)
 
 	producer, err := client.Producer()
 	if err != nil {

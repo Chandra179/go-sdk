@@ -1,26 +1,30 @@
 services:
-  gosdk-app:
-    build: .
-    container_name: gosdk-app
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-    depends_on:
-      postgres: { condition: service_healthy }
-      kafka: { condition: service_healthy }
-    networks:
-      - app-network
+  # gosdk-app:
+  #   build: .
+  #   container_name: gosdk-app
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 512M
+  #   ports:
+  #     - "8080:8080"  # HTTP API
+  #   depends_on:
+  #     postgres: { condition: service_healthy }
+  #     kafka: { condition: service_healthy }
+  #   network_mode: host
+  #   env_file:
+  #     - .env
 
-  redis:
-    image: redis:alpine
-    container_name: redis
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-    networks:
-      - app-network
+  # redis:
+  #   image: redis:alpine
+  #   container_name: redis
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 256M
+  #   ports:
+  #     - "6379:6379"  # Redis
+  #   network_mode: host
 
   kafka:
     image: confluentinc/cp-kafka:7.6.0
@@ -29,13 +33,14 @@ services:
       resources:
         limits:
           memory: 512M
+    network_mode: host
     environment:
       KAFKA_NODE_ID: 1
       CLUSTER_ID: "OGY2YzdlMTk5OWFhNGEzZg"
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -43,13 +48,11 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:9092"]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
       interval: 10s
       timeout: 10s
       retries: 5
       start_period: 30s
-    networks:
-      - app-network
 
   postgres:
     image: postgres:15
@@ -58,32 +61,35 @@ services:
       resources:
         limits:
           memory: 600M
+    network_mode: host
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydb
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     healthcheck:
-      # Robust check: -U is user, -d is database
-      test: ["CMD-SHELL", "pg_isready -U myuser -d mydb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
       start_period: 10s
-    networks:
-      - app-network
 
   alloy:
-    image: grafana/alloy:v1.2.0
+    image: grafana/alloy:v1.5.0
     container_name: alloy
     deploy:
       resources:
         limits:
           memory: 300M
+    ports:
+      - "12345:12345"
+      - "4317:4317"
+      - "4318:4318"
     volumes:
       - ./otel/config.alloy:/etc/alloy/config.alloy:ro
-    command: run /etc/alloy/config.alloy
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: run --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.alloy
     networks:
-      - app-network
+      - monitoring
 
   prometheus:
     image: prom/prometheus:latest
@@ -92,27 +98,34 @@ services:
       resources:
         limits:
           memory: 600M
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=1d
+      - --web.enable-remote-write-receiver
     networks:
-      - app-network
+      - monitoring
 
   loki:
-    image: grafana/loki:2.9.10
+    image: grafana/loki:3.2.0
     container_name: loki
     deploy:
       resources:
         limits:
           memory: 400M
+    ports:
+      - "3100:3100"
     volumes:
       - ./otel/loki.yaml:/etc/loki/local-config.yaml:ro
     command: -config.file=/etc/loki/local-config.yaml
     networks:
-      - app-network
+      - monitoring
 
   grafana:
-    image: grafana/grafana:10.4.3
+    image: grafana/grafana-oss:11.0.0
     container_name: grafana
     deploy:
       resources:
@@ -123,15 +136,51 @@ services:
     volumes:
       - ./otel/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
     networks:
-      - app-network
+      - monitoring
 
-networks:
-  app-network:
-    driver: bridge
+  kafka-example-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.examples
+      target: producer
+    container_name: kafka-example-producer
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC:-orders}
+      OTEL_EXPORTER_OTLP_ENDPOINT: host.docker.internal:4317
+    depends_on:
+      kafka: { condition: service_healthy }
+      alloy: { condition: service_started }
+
+  kafka-example-consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile.examples
+      target: consumer
+    container_name: kafka-example-consumer
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC:-orders}
+      OTEL_EXPORTER_OTLP_ENDPOINT: host.docker.internal:4317
+    depends_on:
+      kafka: { condition: service_healthy }
+      alloy: { condition: service_started }
 
 volumes:
   redis-data:
@@ -140,3 +189,7 @@ volumes:
   loki-data:
   grafana-data:
   kafka-data:
+
+networks:
+  monitoring:
+    driver: bridge

@@ -4,9 +4,10 @@ import (
 	"context"
 	"time"
 
+	"gosdk/pkg/logger"
+
 	kafkago "github.com/segmentio/kafka-go"
 	kafkacompress "github.com/segmentio/kafka-go/compress"
-	"gosdk/pkg/logger"
 )
 
 const (
@@ -57,11 +58,6 @@ func (p *KafkaProducer) Publish(ctx context.Context, msg Message) error {
 		return ErrProducerNotInitialized
 	}
 
-	start := time.Now()
-	defer func() {
-		RecordProducerSendLatency(ctx, msg.Topic, time.Since(start).Seconds())
-	}()
-
 	kafkaMsg := kafkago.Message{
 		Topic: msg.Topic,
 		Key:   msg.Key,
@@ -79,7 +75,6 @@ func (p *KafkaProducer) Publish(ctx context.Context, msg Message) error {
 
 	err := p.writer.WriteMessages(ctx, kafkaMsg)
 	if err != nil {
-		RecordProducerSendError(ctx, msg.Topic, "write_failed")
 		p.logger.Error(ctx, "Failed to publish message",
 			logger.Field{Key: "error", Value: err},
 			logger.Field{Key: "topic", Value: msg.Topic},
@@ -87,7 +82,6 @@ func (p *KafkaProducer) Publish(ctx context.Context, msg Message) error {
 		return err
 	}
 
-	RecordProducerMessageSent(ctx, msg.Topic, p.compressionType)
 	p.logger.Debug(ctx, "Message published successfully",
 		logger.Field{Key: "topic", Value: msg.Topic},
 		logger.Field{Key: "compression", Value: p.compressionType})

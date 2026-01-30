@@ -1,4 +1,5 @@
-package main
+// Package consumer provides a Kafka consumer example that processes order events.
+package consumer
 
 import (
 	"context"
@@ -10,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"gosdk/cfg"
+	"gosdk/internal/app/bootstrap"
 	"gosdk/pkg/kafka"
 	"gosdk/pkg/logger"
 )
@@ -33,7 +36,35 @@ func FromJSON(data []byte) (OrderEvent, error) {
 	return event, nil
 }
 
-func main() {
+// getEnv retrieves environment variable with fallback default value
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+// Run starts the consumer example
+func Run() {
+	ctx := context.Background()
+
+	// Initialize OpenTelemetry for observability
+	otelConfig := &cfg.OtelConfig{
+		OTLPEndpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317"),
+		ServiceName:  getEnv("OTEL_SERVICE_NAME", "consumer-example"),
+	}
+	shutdown, _, err := bootstrap.InitOtel(ctx, otelConfig, 1.0)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize OTEL: %v", err)
+		// Continue without OTEL - logs will still go to stdout
+	} else {
+		defer func() {
+			if err := shutdown(ctx); err != nil {
+				log.Printf("Error shutting down OTEL: %v", err)
+			}
+		}()
+	}
+
 	// For examples, we'll create a minimal config using environment variables
 	// In production, you would use cfg.Load() to get full config
 	appEnv := "development"
@@ -41,7 +72,7 @@ func main() {
 		appEnv = env
 	}
 
-	// Create logger using pkg/logger
+	// Create logger using pkg/logger (now with OTEL support)
 	logger := logger.NewLogger(appEnv)
 
 	// Get Kafka brokers from environment or use default

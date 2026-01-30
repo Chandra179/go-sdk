@@ -3,52 +3,51 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"gosdk/cfg"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/prometheus"
-	"go.opentelemetry.io/otel/log/global"
+	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/propagation"
-	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
-func InitOtel(ctx context.Context, obsCfg *cfg.OtelConfig, samplerRatio float64) (func(context.Context) error, error) {
+// MetricsHandler exposes the Prometheus HTTP handler for the OTEL metrics
+type MetricsHandler interface {
+	http.Handler
+}
+
+// InitOtel initializes OpenTelemetry for traces and metrics.
+// Note: Logs are handled by Docker log scraping to Loki, not OTLP.
+// Returns a shutdown function and the Prometheus metrics handler for serving metrics via HTTP.
+func InitOtel(ctx context.Context, obsCfg *cfg.OtelConfig, samplerRatio float64) (func(context.Context) error, MetricsHandler, error) {
 	res, err := resource.New(ctx,
 		resource.WithAttributes(semconv.ServiceNameKey.String(obsCfg.ServiceName)),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("create resource: %w", err)
+		return nil, nil, fmt.Errorf("create resource: %w", err)
 	}
 
 	tracerProvider, err := setupTracing(ctx, obsCfg, res, samplerRatio)
 	if err != nil {
-		return nil, fmt.Errorf("setup tracing: %w", err)
+		return nil, nil, fmt.Errorf("setup tracing: %w", err)
 	}
 
-	meterProvider, err := setupMetrics(ctx, obsCfg, res)
+	meterProvider, metricsHandler, err := setupMetrics(ctx, obsCfg, res)
 	if err != nil {
-		return nil, fmt.Errorf("setup metrics: %w", err)
-	}
-
-	loggerProvider, err := setupLogs(ctx, obsCfg, res)
-	if err != nil {
-		_ = meterProvider.Shutdown(ctx)
-		return nil, fmt.Errorf("setup logs: %w", err)
+		return nil, nil, fmt.Errorf("setup metrics: %w", err)
 	}
 
 	shutdown := func(ctx context.Context) error {
 		var errs []error
-		if err := loggerProvider.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("logger provider: %w", err))
-		}
 		if err := meterProvider.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("meter provider: %w", err))
 		}
@@ -61,14 +60,17 @@ func InitOtel(ctx context.Context, obsCfg *cfg.OtelConfig, samplerRatio float64)
 		return nil
 	}
 
-	return shutdown, nil
+	return shutdown, metricsHandler, nil
 }
 
-func setupMetrics(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource) (*metric.MeterProvider, error) {
-	// Create Prometheus exporter
-	promExporter, err := prometheus.New()
+func setupMetrics(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource) (*metric.MeterProvider, http.Handler, error) {
+	// Create a custom Prometheus registry for OTEL metrics
+	reg := prometheus.NewRegistry()
+
+	// Create Prometheus exporter with the custom registry
+	promExporter, err := otelprom.New(otelprom.WithRegisterer(reg))
 	if err != nil {
-		return nil, fmt.Errorf("create prometheus exporter: %w", err)
+		return nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
 	}
 
 	// Create OTLP exporter (keep for other metrics)
@@ -77,7 +79,7 @@ func setupMetrics(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resour
 		otlpmetricgrpc.WithInsecure(),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("create otlp exporter: %w", err)
+		return nil, nil, fmt.Errorf("create otlp exporter: %w", err)
 	}
 
 	provider := metric.NewMeterProvider(
@@ -87,25 +89,10 @@ func setupMetrics(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resour
 	)
 	otel.SetMeterProvider(provider)
 
-	return provider, nil
-}
+	// Create HTTP handler from the custom registry
+	metricsHandler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 
-func setupLogs(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource) (*sdklog.LoggerProvider, error) {
-	exporter, err := otlploggrpc.New(ctx,
-		otlploggrpc.WithEndpoint(cfg.OTLPEndpoint),
-		otlploggrpc.WithInsecure(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create otlp log exporter: %w", err)
-	}
-
-	provider := sdklog.NewLoggerProvider(
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)),
-		sdklog.WithResource(res),
-	)
-	global.SetLoggerProvider(provider)
-
-	return provider, nil
+	return provider, metricsHandler, nil
 }
 
 func setupTracing(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource, samplerRatio float64) (*sdktrace.TracerProvider, error) {
