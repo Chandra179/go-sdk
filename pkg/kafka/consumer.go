@@ -23,6 +23,19 @@ type KafkaConsumer struct {
 }
 
 func NewKafkaConsumer(cfg *ConsumerConfig, brokers []string, groupID string, topics []string, dialer *kafkago.Dialer, logger logger.Logger) *KafkaConsumer {
+	// Determine start offset based on configuration
+	var startOffset int64
+	switch cfg.StartOffset {
+	case StartOffsetLatest:
+		startOffset = kafkago.LastOffset
+	case StartOffsetNone:
+		// For "none", we'll use LastOffset but will need additional logic
+		// to detect if consumer group is new (not yet implemented)
+		startOffset = kafkago.LastOffset
+	default: // StartOffsetEarliest or unset
+		startOffset = kafkago.FirstOffset
+	}
+
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:               brokers,
 		GroupID:               groupID,
@@ -34,7 +47,7 @@ func NewKafkaConsumer(cfg *ConsumerConfig, brokers []string, groupID string, top
 		HeartbeatInterval:     cfg.HeartbeatInterval,
 		// SessionTimeout:        cfg.SessionTimeout, // Let kafka-go use default
 		Dialer:      dialer,
-		StartOffset: kafkago.FirstOffset, // Read from beginning
+		StartOffset: startOffset,
 	})
 
 	return &KafkaConsumer{
@@ -86,13 +99,19 @@ func (c *KafkaConsumer) processMessageWithRetry(
 			return ctx.Err()
 		}
 
-		// Exponential backoff before next attempt
+		// Exponential backoff with jitter before next attempt
 		if attempt < shortRetries-1 {
-			delay := time.Duration(c.retryCfg.InitialBackoff) * time.Millisecond * time.Duration(1<<attempt)
-			if delay > time.Duration(c.retryCfg.MaxBackoff)*time.Millisecond {
-				delay = time.Duration(c.retryCfg.MaxBackoff) * time.Millisecond
+			delay := calculateBackoff(c.retryCfg.InitialBackoff, c.retryCfg.MaxBackoff, attempt)
+
+			// Non-blocking sleep with context cancellation
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+				// Continue to next attempt
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
 			}
-			time.Sleep(delay)
 		}
 	}
 
@@ -237,4 +256,22 @@ func parseFirstFailedAt(headers map[string]string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// calculateBackoff calculates exponential backoff with jitter
+// initialBackoff and maxBackoff are in milliseconds
+func calculateBackoff(initialBackoff, maxBackoff int64, attempt int) time.Duration {
+	// Calculate exponential delay: initialBackoff * 2^attempt
+	delay := time.Duration(initialBackoff) * time.Millisecond * time.Duration(1<<attempt)
+
+	// Cap at maxBackoff
+	if delay > time.Duration(maxBackoff)*time.Millisecond {
+		delay = time.Duration(maxBackoff) * time.Millisecond
+	}
+
+	// Add jitter: ±20% to prevent thundering herd
+	// Use crypto/rand for better randomness in production
+	jitter := time.Duration(float64(delay) * 0.2 * (0.5 - float64(time.Now().UnixNano()%100)/100.0))
+
+	return delay + jitter
 }

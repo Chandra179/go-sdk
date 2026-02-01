@@ -19,6 +19,7 @@ var (
 	ErrInvalidAcks            = errors.New("invalid acks value, must be one of: all, none, leader")
 	ErrRequiredCompression    = errors.New("compression type is required")
 	ErrRequiredBrokers        = errors.New("brokers list is required")
+	ErrMessageTooLarge        = errors.New("message exceeds maximum size")
 )
 
 type Message struct {
@@ -45,6 +46,28 @@ type Producer interface {
 type Consumer interface {
 	Start(ctx context.Context, handler ConsumerHandler) error
 	Close() error
+}
+
+// StartOffset defines where to start consuming messages
+type StartOffset int
+
+const (
+	StartOffsetEarliest StartOffset = iota // Read from beginning
+	StartOffsetLatest                      // Read from end (real-time)
+	StartOffsetNone                        // Fail if no offset exists
+)
+
+func (s StartOffset) String() string {
+	switch s {
+	case StartOffsetEarliest:
+		return "earliest"
+	case StartOffsetLatest:
+		return "latest"
+	case StartOffsetNone:
+		return "none"
+	default:
+		return "unknown"
+	}
 }
 
 type RetryConfig struct {

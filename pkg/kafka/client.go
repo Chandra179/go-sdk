@@ -139,6 +139,7 @@ type ProducerConfig struct {
 	CompressionType string
 	MaxAttempts     int
 	Async           bool
+	MaxMessageSize  int // Maximum message size in bytes (0 = 1MB default)
 }
 
 type ConsumerConfig struct {
@@ -149,6 +150,7 @@ type ConsumerConfig struct {
 	HeartbeatInterval     time.Duration
 	SessionTimeout        time.Duration
 	WatchPartitionChanges bool
+	StartOffset           StartOffset // Where to start consuming (earliest, latest, none)
 }
 
 type SecurityConfig struct {

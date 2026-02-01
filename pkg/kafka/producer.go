@@ -21,12 +21,16 @@ const (
 	validAcksAll    = "all"
 	validAcksNone   = "none"
 	validAcksLeader = "leader"
+
+	defaultMaxMessageSize = 1 * 1024 * 1024  // 1MB default
+	kafkaMaxMessageSize   = 10 * 1024 * 1024 // 10MB Kafka limit
 )
 
 type KafkaProducer struct {
 	writer          *kafkago.Writer
 	compressionType string
 	logger          logger.Logger
+	maxMessageSize  int
 }
 
 func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dialer, logger logger.Logger) (*KafkaProducer, error) {
@@ -50,7 +54,7 @@ func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dia
 
 	writer := kafkago.NewWriter(kafkago.WriterConfig{
 		Brokers:          brokers,
-		Balancer:         &kafkago.LeastBytes{},
+		Balancer:         &kafkago.Hash{}, // Use Hash for key-based ordering
 		RequiredAcks:     int(acks),
 		BatchSize:        cfg.BatchSize,
 		Async:            cfg.Async,
@@ -61,10 +65,21 @@ func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dia
 		CompressionCodec: compressionCodec,
 		BatchTimeout:     time.Duration(cfg.LingerMs) * time.Millisecond,
 	})
+
+	// Set max message size with validation
+	maxSize := cfg.MaxMessageSize
+	if maxSize <= 0 {
+		maxSize = defaultMaxMessageSize
+	}
+	if maxSize > kafkaMaxMessageSize {
+		maxSize = kafkaMaxMessageSize
+	}
+
 	return &KafkaProducer{
 		writer:          writer,
 		compressionType: cfg.CompressionType,
 		logger:          logger,
+		maxMessageSize:  maxSize,
 	}, nil
 }
 
@@ -73,6 +88,20 @@ func (p *KafkaProducer) Publish(ctx context.Context, msg Message) error {
 		p.logger.Error(ctx, "Producer not initialized",
 			logger.Field{Key: "topic", Value: msg.Topic})
 		return ErrProducerNotInitialized
+	}
+
+	// Validate message size
+	totalSize := len(msg.Key) + len(msg.Value)
+	for k, v := range msg.Headers {
+		totalSize += len(k) + len(v)
+	}
+
+	if totalSize > p.maxMessageSize {
+		p.logger.Error(ctx, "Message exceeds maximum size",
+			logger.Field{Key: "size", Value: totalSize},
+			logger.Field{Key: "max_size", Value: p.maxMessageSize},
+			logger.Field{Key: "topic", Value: msg.Topic})
+		return fmt.Errorf("%w: %d bytes exceeds limit of %d", ErrMessageTooLarge, totalSize, p.maxMessageSize)
 	}
 
 	kafkaMsg := kafkago.Message{
