@@ -15,89 +15,9 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/api/me": {
-            "get": {
-                "description": "Returns user info from JWT token",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "oauth2"
-                ],
-                "summary": "Get authenticated user info",
-                "responses": {
-                    "200": {
-                        "description": "User info",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/auth/callback/github": {
-            "get": {
-                "description": "Handles GitHub OAuth2 callback and issues JWT",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "oauth2"
-                ],
-                "summary": "GitHub OAuth2 callback",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "OAuth2 code",
-                        "name": "code",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "OAuth2 state",
-                        "name": "state",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Authenticated",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/auth/callback/google": {
             "get": {
-                "description": "Handles Google OAuth2 callback and issues JWT",
+                "description": "Handles Google OAuth2 callback and returns user info",
                 "produces": [
                     "application/json"
                 ],
@@ -126,13 +46,29 @@ const docTemplate = `{
                         "description": "Authenticated",
                         "schema": {
                             "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - missing parameters",
+                        "schema": {
+                            "type": "object",
                             "additionalProperties": {
                                 "type": "string"
                             }
                         }
                     },
                     "401": {
-                        "description": "Unauthorized",
+                        "description": "Unauthorized - invalid state or code",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -143,43 +79,92 @@ const docTemplate = `{
                 }
             }
         },
-        "/auth/github": {
-            "get": {
-                "description": "Redirects user to GitHub OAuth2 login page",
+        "/auth/login": {
+            "post": {
+                "description": "Redirects to OAuth2 provider authorization page",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "oauth2"
+                    "auth"
                 ],
-                "summary": "Start GitHub OAuth2 login",
+                "summary": "Login with OAuth2 provider",
+                "parameters": [
+                    {
+                        "description": "Login request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.LoginRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "302": {
-                        "description": "Redirect",
+                        "description": "Redirect to OAuth2 provider",
                         "schema": {
                             "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
             }
         },
-        "/auth/google": {
-            "get": {
-                "description": "Redirects user to Google OAuth2 login page",
+        "/auth/logout": {
+            "post": {
+                "description": "Deletes user session and clears cookie",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "oauth2"
+                    "auth"
                 ],
-                "summary": "Start Google OAuth2 login",
+                "summary": "Logout",
                 "responses": {
-                    "302": {
-                        "description": "Redirect",
+                    "200": {
+                        "description": "Logged out successfully",
                         "schema": {
-                            "type": "string"
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "auth.LoginRequest": {
+            "type": "object",
+            "required": [
+                "provider"
+            ],
+            "properties": {
+                "provider": {
+                    "description": "\"google\" or \"github\"",
+                    "type": "string"
                 }
             }
         }

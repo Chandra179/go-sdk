@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,21 +10,19 @@ import (
 	"gosdk/internal/service/session"
 	"gosdk/pkg/db"
 	"gosdk/pkg/oauth2"
-
-	"github.com/google/uuid"
 )
 
 type Service struct {
 	oauth2Manager *oauth2.Manager
 	sessionStore  session.Client
-	db            db.SQLExecutor
+	userRepo      *UserRepository
 }
 
-func NewService(oauth2Manager *oauth2.Manager, sessionStore session.Client, db db.SQLExecutor) *Service {
+func NewService(oauth2Manager *oauth2.Manager, sessionStore session.Client, database db.SQLExecutor) *Service {
 	return &Service{
 		oauth2Manager: oauth2Manager,
 		sessionStore:  sessionStore,
-		db:            db,
+		userRepo:      NewUserRepository(database),
 	}
 }
 
@@ -65,6 +62,21 @@ func (s *Service) HandleCallback(ctx context.Context, provider string,
 		SessionCookieName: SessionCookieName,
 		CookieMaxAge:      CookieMaxAge,
 	}, nil
+}
+
+// OAuthCallbackHandler returns a callback handler function for OAuth2 authentication.
+// This is used to break the circular dependency between oauth2.Manager and auth.Service.
+// The handler is wired after both components are created.
+func (s *Service) OAuthCallbackHandler() oauth2.CallbackHandler {
+	return func(ctx context.Context, provider string, userInfo *oauth2.UserInfo, tokenSet *oauth2.TokenSet) (*oauth2.CallbackInfo, error) {
+		return s.HandleCallback(ctx, provider, userInfo, tokenSet)
+	}
+}
+
+// SetOAuth2Manager sets the OAuth2 manager after initialization.
+// This is used to break the circular dependency between oauth2.Manager and auth.Service.
+func (s *Service) SetOAuth2Manager(manager *oauth2.Manager) {
+	s.oauth2Manager = manager
 }
 
 // GetSessionData retrieves and unmarshals session data
@@ -136,57 +148,11 @@ func (s *Service) ValidateAndRefreshSession(ctx context.Context, sessionID strin
 
 // GetOrCreateUser finds existing user by provider and subject_id or creates new user
 func (s *Service) GetOrCreateUser(ctx context.Context, provider, subjectID, email, fullName string) (string, error) {
-	user, err := s.getUserByProviderAndSubject(ctx, provider, subjectID)
-	if err == nil {
-		return user.ID, nil
-	}
-
-	if !errors.Is(err, ErrUserNotFound) {
-		return "", fmt.Errorf("failed to check user: %w", db.ErrDatabaseTimeout)
-	}
-
-	userID := uuid.NewString()
-	now := time.Now()
-
-	insertUserQuery := `
-		INSERT INTO users (id, provider, subject_id, email, full_name, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-	_, err = s.db.ExecContext(ctx, insertUserQuery, userID, provider, subjectID, email, fullName, now, now)
+	user, err := s.userRepo.GetOrCreate(ctx, provider, subjectID, email, fullName)
 	if err != nil {
-		return "", fmt.Errorf("failed to insert user: %w", db.ErrDatabaseTimeout)
+		return "", fmt.Errorf("failed to get or create user: %w", err)
 	}
-
-	return userID, nil
-}
-
-// getUserByProviderAndSubject retrieves a user by provider and subject_id
-func (s *Service) getUserByProviderAndSubject(ctx context.Context, provider, subjectID string) (*User, error) {
-	query := `
-		SELECT id, provider, subject_id, email, full_name, created_at, updated_at
-		FROM users
-		WHERE provider = $1 AND subject_id = $2
-	`
-
-	var user User
-	err := s.db.QueryRowContext(ctx, query, provider, subjectID).Scan(
-		&user.ID,
-		&user.Provider,
-		&user.SubjectID,
-		&user.Email,
-		&user.FullName,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
-
-	if err == sql.ErrNoRows {
-		return nil, ErrUserNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to query user: %w", db.ErrDatabaseTimeout)
-	}
-
-	return &user, nil
+	return user.ID.String(), nil
 }
 
 // DeleteSession deletes a session (logout)

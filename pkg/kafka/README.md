@@ -53,14 +53,7 @@ Send to DLQ (.dlq suffix) if still failing
 - Configurable TLS version (minimum TLS 1.2)
 - Certificate and CA validation
 
-#### 6. Observability (`metrics.go`)
-- Comprehensive OpenTelemetry metrics:
-  - **Producer**: Message counts, errors, latency histograms
-  - **Consumer**: Processing counts, errors, lag, rebalance events
-  - **DLQ/Retry**: Message routing counts
-- Automatic metric registration with Prometheus exposition format compatibility
-
-#### 7. Type System (`types.go`)
+#### 6. Type System (`types.go`)
 - Clean interface definitions for Client, Producer, Consumer
 - Standardized Message structure with headers support
 - Comprehensive error definitions with context
@@ -154,7 +147,6 @@ All errors include context and are designed for `errors.Is` checks.
 
 - **Logging**: Uses `gosdk/pkg/logger` with context propagation
 - **Configuration**: Integrates with `gosdk/cfg` for environment-based settings
-- **Metrics**: OpenTelemetry metrics with Prometheus exposition format
 - **Security**: TLS certificates managed through filesystem paths
 
 This architecture provides a production-ready, resilient Kafka client with comprehensive observability and error handling capabilities suitable for high-throughput, mission-critical applications.

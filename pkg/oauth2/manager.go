@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"gosdk/cfg"
+	"sync"
 	"time"
 )
 
@@ -13,8 +13,10 @@ var (
 	ErrInvalidState     = errors.New("invalid state")
 	ErrOAuth2State      = errors.New("invalid oauth2 state")
 	ErrOAuth2Callback   = errors.New("oauth2 callback error")
+	ErrCallbackHandler  = errors.New("callback handler not set")
 )
 
+// CallbackInfo contains session information returned by the callback handler
 type CallbackInfo struct {
 	SessionCookieName string
 	UserID            string
@@ -27,28 +29,72 @@ type CallbackInfo struct {
 // Returns custom data that can be used by the caller (e.g., session data)
 type CallbackHandler func(ctx context.Context, provider string, userInfo *UserInfo, tokenSet *TokenSet) (*CallbackInfo, error)
 
+// ManagerConfig contains configuration for the OAuth2 manager
+type ManagerConfig struct {
+	// StateTimeout is the duration for which state parameters are valid
+	StateTimeout time.Duration
+	// CallbackHandler is invoked after successful OAuth2 authentication
+	CallbackHandler CallbackHandler
+}
+
+// DefaultManagerConfig returns a secure default configuration
+func DefaultManagerConfig() *ManagerConfig {
+	return &ManagerConfig{
+		StateTimeout: 10 * time.Minute,
+	}
+}
+
 // Manager manages OAuth2/OIDC providers and authentication flow
 type Manager struct {
+	mu              sync.RWMutex
 	providers       map[string]Provider
 	stateStorage    StateStorage
-	CallbackHandler CallbackHandler
+	callbackHandler CallbackHandler
 	stateTimeout    time.Duration
 }
 
 // NewManager creates a new manager with providers from configuration
-func NewManager(ctx context.Context, cfg *cfg.Oauth2Config) (*Manager, error) {
-	mgr := &Manager{
-		providers:    make(map[string]Provider),
-		stateStorage: NewInMemoryStorage(),
-		stateTimeout: 10 * time.Minute,
+func NewManager(ctx context.Context, cfg *ManagerConfig) (*Manager, error) {
+	// Start with defaults
+	defaultCfg := DefaultManagerConfig()
+
+	if cfg == nil {
+		cfg = defaultCfg
 	}
 
-	if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
+	// Apply defaults for unset fields
+	if cfg.StateTimeout == 0 {
+		cfg.StateTimeout = defaultCfg.StateTimeout
+	}
+
+	// Validate required callback handler
+	if cfg.CallbackHandler == nil {
+		return nil, fmt.Errorf("%w: callback handler is required", ErrCallbackHandler)
+	}
+
+	mgr := &Manager{
+		providers:       make(map[string]Provider),
+		stateStorage:    NewInMemoryStorage(),
+		callbackHandler: cfg.CallbackHandler,
+		stateTimeout:    cfg.StateTimeout,
+	}
+
+	return mgr, nil
+}
+
+// NewManagerWithGoogle creates a new manager with Google provider configured
+func NewManagerWithGoogle(ctx context.Context, cfg *ManagerConfig, googleClientID, googleClientSecret, googleRedirectURL string) (*Manager, error) {
+	mgr, err := NewManager(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if googleClientID != "" && googleClientSecret != "" {
 		googleProvider, err := NewGoogleOIDCProvider(
 			ctx,
-			cfg.GoogleClientID,
-			cfg.GoogleClientSecret,
-			cfg.GoogleRedirectUrl,
+			googleClientID,
+			googleClientSecret,
+			googleRedirectURL,
 			nil,
 		)
 		if err != nil {
@@ -61,13 +107,20 @@ func NewManager(ctx context.Context, cfg *cfg.Oauth2Config) (*Manager, error) {
 }
 
 // RegisterProvider registers a new authentication provider
+// This method is safe for concurrent use
 func (m *Manager) RegisterProvider(provider Provider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.providers[provider.GetName()] = provider
 }
 
 // GetAuthURL generates authorization URL with state, nonce, and PKCE
+// This method is safe for concurrent use
 func (m *Manager) GetAuthURL(providerName string) (string, error) {
+	m.mu.RLock()
 	provider, exists := m.providers[providerName]
+	m.mu.RUnlock()
+
 	if !exists {
 		return "", ErrProviderNotFound
 	}
@@ -99,27 +152,32 @@ func (m *Manager) GetAuthURL(providerName string) (string, error) {
 
 // HandleCallback handles OAuth2/OIDC callback and invokes the callback handler
 // Returns userInfo, tokenSet, and any custom result from the callback handler
+// This method is safe for concurrent use
 func (m *Manager) HandleCallback(ctx context.Context, providerName, code, state string) (*CallbackInfo, error) {
+	m.mu.RLock()
 	provider, exists := m.providers[providerName]
+	m.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrProviderNotFound
 	}
 
 	stateData, err := m.stateStorage.GetStateData(state)
 	if err != nil {
-		return nil, fmt.Errorf("invalid state: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrInvalidState, err)
 	}
 
 	// Delete state after retrieval (one-time use)
+	// Note: We delete even if callback fails to prevent replay attacks
 	defer m.stateStorage.DeleteState(state)
 
 	userInfo, tokenSet, err := provider.HandleCallback(ctx, code, state, stateData.Nonce, stateData.CodeVerifier)
 	if err != nil {
-		return nil, fmt.Errorf("callback failed: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrOAuth2Callback, err)
 	}
 
-	// Invoke callback handler
-	info, err := m.CallbackHandler(ctx, providerName, userInfo, tokenSet)
+	// Invoke callback handler (already validated in constructor)
+	info, err := m.callbackHandler(ctx, providerName, userInfo, tokenSet)
 	if err != nil {
 		return nil, fmt.Errorf("callback handler failed: %w", err)
 	}
@@ -128,7 +186,11 @@ func (m *Manager) HandleCallback(ctx context.Context, providerName, code, state 
 }
 
 // GetProvider returns a provider by name
+// This method is safe for concurrent use
 func (m *Manager) GetProvider(providerName string) (Provider, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	provider, exists := m.providers[providerName]
 	if !exists {
 		return nil, ErrProviderNotFound

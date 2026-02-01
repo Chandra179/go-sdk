@@ -1,62 +1,18 @@
+definitions:
+  auth.LoginRequest:
+    properties:
+      provider:
+        description: '"google" or "github"'
+        type: string
+    required:
+    - provider
+    type: object
 info:
   contact: {}
 paths:
-  /api/me:
-    get:
-      description: Returns user info from JWT token
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: User info
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get authenticated user info
-      tags:
-      - oauth2
-  /auth/callback/github:
-    get:
-      description: Handles GitHub OAuth2 callback and issues JWT
-      parameters:
-      - description: OAuth2 code
-        in: query
-        name: code
-        required: true
-        type: string
-      - description: OAuth2 state
-        in: query
-        name: state
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Authenticated
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: GitHub OAuth2 callback
-      tags:
-      - oauth2
   /auth/callback/google:
     get:
-      description: Handles Google OAuth2 callback and issues JWT
+      description: Handles Google OAuth2 callback and returns user info
       parameters:
       - description: OAuth2 code
         in: query
@@ -74,11 +30,22 @@ paths:
         "200":
           description: Authenticated
           schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request - missing parameters
+          schema:
             additionalProperties:
               type: string
             type: object
         "401":
-          description: Unauthorized
+          description: Unauthorized - invalid state or code
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties:
               type: string
@@ -86,30 +53,53 @@ paths:
       summary: Google OAuth2 callback
       tags:
       - oauth2
-  /auth/github:
-    get:
-      description: Redirects user to GitHub OAuth2 login page
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Redirects to OAuth2 provider authorization page
+      parameters:
+      - description: Login request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.LoginRequest'
       produces:
       - application/json
       responses:
         "302":
-          description: Redirect
+          description: Redirect to OAuth2 provider
           schema:
             type: string
-      summary: Start GitHub OAuth2 login
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Login with OAuth2 provider
       tags:
-      - oauth2
-  /auth/google:
-    get:
-      description: Redirects user to Google OAuth2 login page
+      - auth
+  /auth/logout:
+    post:
+      description: Deletes user session and clears cookie
       produces:
       - application/json
       responses:
-        "302":
-          description: Redirect
+        "200":
+          description: Logged out successfully
           schema:
-            type: string
-      summary: Start Google OAuth2 login
+            additionalProperties:
+              type: string
+            type: object
+      summary: Logout
       tags:
-      - oauth2
+      - auth
 swagger: "2.0"

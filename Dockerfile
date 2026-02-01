@@ -29,4 +29,4 @@ COPY --from=builder /app/db/migrations ./db/migrations
 EXPOSE 8080 9090 40000
 
 # Run Delve in headless mode, which then starts your app
-CMD ["dlv", "--listen=:40000", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "./main"]
+CMD ["dlv", "--listen=:40000", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "./main", "--continue"]

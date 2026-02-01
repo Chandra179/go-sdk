@@ -2,6 +2,13 @@
 
 This project is a Go template demonstrating reusable packages and runnable example services.
 
+## API Documentation (Swagger)
+
+Once the application is running, access the Swagger UI at:
+```
+http://localhost:8080/swagger/index.html
+```
+
 ## Project Structure
 ```
 ├── cmd/                               # Runnable applications
@@ -60,6 +67,10 @@ This project is a Go template demonstrating reusable packages and runnable examp
 ├── docs/                              # Documentation
 ├── AGENTS.md                          # Agent coding guidelines
 ├── Makefile                           # Build commands
+├── sqlc.yaml                          # sqlc configuration for type-safe SQL
+├── db/                                # Database migrations and queries
+│   ├── migrations/                    # SQL migration files
+│   └── queries/                       # SQL query files for sqlc
 ├── docker-compose.yml                 # Local services
 ├── Dockerfile                         # Container image
 ├── Dockerfile.examples                # Example services container
@@ -78,48 +89,15 @@ This project is a Go template demonstrating reusable packages and runnable examp
 3. **`examples/` folder**
    - Contains **standalone example implementations** demonstrating library usage.
 
-## OpenTelemetry Architecture
+## OpenTelemetry
 
 This project implements a comprehensive observability stack using OpenTelemetry (OTEL) for distributed tracing, metrics, and logging.
 
 ![Otel architecture](img/otel_arch.png)
 
-### Data Flow
-
 1. **Metrics**: Application → OTLP Receiver → Batch Processor → Prometheus Exporter → Prometheus (via remote_write)
 2. **Docker Logs**: Application (Zerolog JSON) → Docker stdout → Alloy Docker Log Scraper → Loki Process → Loki Write → Loki
 
-### Components
+## Database & SQL Code Generation (sqlc)
 
-#### 1. Application Instrumentation (`internal/app/bootstrap/otel.go`)
-- **Meter Provider**: Exports metrics via OTLP/gRPC to Alloy; also exposes Prometheus endpoint for scraping
-- **Tracer Provider**: Sends traces via OTLP/gRPC (Note: Traces are currently dropped by Alloy - no exporter configured)
-- **Propagator**: W3C Trace Context and Baggage propagation
-- **Sampling**: Configurable trace sampling ratio (default: 1.0)
-- **Logs**: Handled via Docker log scraping to Loki, not OTLP (no OTLP log exporter in code)
-
-#### 2. Grafana Alloy (`otel/config.alloy`)
-- **OTLP Receiver**: Accepts metrics on ports 4317 (gRPC) and 4318 (HTTP)
-- **Batch Processor**: Batches metrics for efficient export
-- **Prometheus Exporter**: Forwards metrics to Prometheus remote write endpoint
-- **Docker Log Scraper**: Scrapes container logs from Docker socket
-- **Loki Process**: Parses and adds labels to Docker logs
-- **Loki Write**: Sends Docker logs to Loki
-
-#### 3. Metrics Collection
-
-**Custom Application Metrics** (via OTEL SDK):
-- HTTP request latency, error rates
-- Kafka producer/consumer metrics
-- Business-specific counters and gauges
-
-**Kafka Package Metrics** (`pkg/kafka/otel_metrics.go`):
-- `kafka.producer.messages_sent` - Total messages sent
-- `kafka.producer.send_errors` - Send error count
-- `kafka.producer.send_latency` - Send latency histogram
-- `kafka.consumer.messages_processed` - Messages processed
-- `kafka.consumer.processing_errors` - Processing errors
-- `kafka.consumer.lag` - Consumer lag by topic/partition
-- `kafka.consumer.rebalance_events` - Rebalance events
-- `kafka.dlq.messages_sent` - DLQ routing count
-- `kafka.retry.messages_sent` - Retry routing count
+This project uses **[sqlc](https://docs.sqlc.dev/)** for type-safe SQL code generation. sqlc generates Go code from SQL queries, providing compile-time safety and eliminating the need for ORMs.

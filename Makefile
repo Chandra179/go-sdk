@@ -1,6 +1,10 @@
 ins:
 	go mod tidy && go mod vendor
 
+it:
+	go install github.com/swaggo/swag/cmd/swag@latest
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+
 up:
 	docker compose up -d
 
@@ -11,7 +15,18 @@ bg:
 	docker compose up gosdk-app --build -d
 
 swag:
-	swag init -g /cmd/myapp/main.go -o api
+	swag init -g cmd/myapp/main.go -o api
+
+# Generate type-safe SQL code using sqlc
+.PHONY: sqlc
+sqlc:
+	sqlc generate
+
+# Verify sqlc generated code is up to date
+.PHONY: sqlc-verify
+sqlc-verify:
+	sqlc generate
+	@git diff --exit-code internal/storage/db/generated/ || (echo "Generated code is out of date. Run 'make sqlc' to update." && exit 1)
 
 IMAGE ?= my-app
 VERSION ?= latest
@@ -22,29 +37,3 @@ docker-push:
 	docker build -t $(IMAGE):$(VERSION) .
 	docker tag $(IMAGE):$(VERSION) $(DOCKER_USER)/$(IMAGE):$(VERSION)
 	docker push $(DOCKER_USER)/$(IMAGE):$(VERSION)
-
-test:
-	go test ./... -race -cover
-
-test-coverage:
-	go test ./... -race -coverprofile=coverage.out
-	go tool cover -html=coverage.out -o coverage.html
-
-# Example applications
-.PHONY: build-examples
-build-examples:
-	go build -o bin/producer ./cmd/examples/producer
-	go build -o bin/consumer ./cmd/examples/consumer
-
-.PHONY: run-producer
-run-producer:
-	go run ./cmd/examples/producer/main.go
-
-.PHONY: run-consumer
-run-consumer:
-	go run ./cmd/examples/consumer/main.go
-
-.PHONY: docker-build-examples
-docker-build-examples:
-	docker build -f Dockerfile.examples --target producer -t kafka-example-producer:latest .
-	docker build -f Dockerfile.examples --target consumer -t kafka-example-consumer:latest .

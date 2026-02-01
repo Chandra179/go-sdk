@@ -14,7 +14,7 @@ type GoogleOIDCProvider struct {
 	config       *oauth2.Config
 	provider     *oidc.Provider
 	verifier     *oidc.IDTokenVerifier
-	logoutUrl    string
+	logoutURL    string
 	providerName string
 }
 
@@ -45,14 +45,17 @@ func NewGoogleOIDCProvider(ctx context.Context, clientID, clientSecret, redirect
 		config:       config,
 		provider:     provider,
 		verifier:     verifier,
+		logoutURL:    "https://accounts.google.com/logout",
 		providerName: "google",
 	}, nil
 }
 
+// GetName returns the provider name
 func (g *GoogleOIDCProvider) GetName() string {
 	return g.providerName
 }
 
+// GetAuthURL generates the authorization URL with PKCE and nonce
 func (g *GoogleOIDCProvider) GetAuthURL(state string, nonce string, codeChallenge string) string {
 	opts := []oauth2.AuthCodeOption{
 		oauth2.AccessTypeOffline,
@@ -64,6 +67,7 @@ func (g *GoogleOIDCProvider) GetAuthURL(state string, nonce string, codeChalleng
 	return g.config.AuthCodeURL(state, opts...)
 }
 
+// HandleCallback processes the OAuth2 callback, exchanges code for tokens, and validates ID token
 func (g *GoogleOIDCProvider) HandleCallback(ctx context.Context, code string, state string,
 	nonce string, codeVerifier string) (*UserInfo, *TokenSet, error) {
 	oauth2Token, err := g.config.Exchange(
@@ -135,7 +139,8 @@ func (g *GoogleOIDCProvider) RefreshToken(ctx context.Context, refreshToken stri
 		ExpiresAt:    newToken.Expiry,
 	}
 
-	if idToken, ok := newToken.Extra("id_token").(string); ok {
+	// Preserve existing ID token if refresh doesn't return one
+	if idToken, ok := newToken.Extra("id_token").(string); ok && idToken != "" {
 		tokenSet.IDToken = idToken
 	}
 
@@ -143,7 +148,6 @@ func (g *GoogleOIDCProvider) RefreshToken(ctx context.Context, refreshToken stri
 }
 
 // GetEndSessionEndpoint returns Google's logout endpoint
-// Provider might be not provide this, if not we construct it manually
 func (g *GoogleOIDCProvider) GetEndSessionEndpoint() string {
-	return g.logoutUrl
+	return g.logoutURL
 }

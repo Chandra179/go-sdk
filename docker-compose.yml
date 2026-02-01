@@ -1,30 +1,37 @@
 services:
-  # gosdk-app:
-  #   build: .
-  #   container_name: gosdk-app
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 512M
-  #   ports:
-  #     - "8080:8080"  # HTTP API
-  #   depends_on:
-  #     postgres: { condition: service_healthy }
-  #     kafka: { condition: service_healthy }
-  #   network_mode: host
-  #   env_file:
-  #     - .env
+  gosdk-app:
+    build: .
+    container_name: gosdk-app
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    ports:
+      - "8080:8080"  # HTTP API
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      redis: { condition: service_started }
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BROKERS: kafka:9092
+      OTEL_EXPORTER_OTLP_ENDPOINT: alloy:4317
+    networks:
+      - app-network
+      - monitoring
 
-  # redis:
-  #   image: redis:alpine
-  #   container_name: redis
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 256M
-  #   ports:
-  #     - "6379:6379"  # Redis
-  #   network_mode: host
+  redis:
+    image: redis:alpine
+    container_name: redis
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - app-network
 
   kafka:
     image: confluentinc/cp-kafka:7.6.0
@@ -33,14 +40,15 @@ services:
       resources:
         limits:
           memory: 512M
-    network_mode: host
+    ports:
+      - "9092:9092"  # Kafka external access
     environment:
       KAFKA_NODE_ID: 1
       CLUSTER_ID: "OGY2YzdlMTk5OWFhNGEzZg"
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -48,11 +56,13 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:9092"]
       interval: 10s
       timeout: 10s
       retries: 5
       start_period: 30s
+    networks:
+      - app-network
 
   postgres:
     image: postgres:15
@@ -61,7 +71,8 @@ services:
       resources:
         limits:
           memory: 600M
-    network_mode: host
+    ports:
+      - "5432:5432"  # PostgreSQL external access
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -72,6 +83,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - app-network
 
   alloy:
     image: grafana/alloy:v1.5.0
@@ -142,45 +155,51 @@ services:
     networks:
       - monitoring
 
-  kafka-example-producer:
-    build:
-      context: .
-      dockerfile: Dockerfile.examples
-      target: producer
-    container_name: kafka-example-producer
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-    network_mode: host
-    env_file:
-      - .env
-    environment:
-      KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC:-orders}
-      OTEL_EXPORTER_OTLP_ENDPOINT: host.docker.internal:4317
-    depends_on:
-      kafka: { condition: service_healthy }
-      alloy: { condition: service_started }
+  # kafka-example-producer:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.examples
+  #     target: producer
+  #   container_name: kafka-example-producer
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 256M
+  #   networks:
+  #     - app-network
+  #     - monitoring
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC:-orders}
+  #     KAFKA_BROKERS: kafka:9092
+  #     OTEL_EXPORTER_OTLP_ENDPOINT: alloy:4317
+  #   depends_on:
+  #     kafka: { condition: service_healthy }
+  #     alloy: { condition: service_started }
 
-  kafka-example-consumer:
-    build:
-      context: .
-      dockerfile: Dockerfile.examples
-      target: consumer
-    container_name: kafka-example-consumer
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-    network_mode: host
-    env_file:
-      - .env
-    environment:
-      KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC:-orders}
-      OTEL_EXPORTER_OTLP_ENDPOINT: host.docker.internal:4317
-    depends_on:
-      kafka: { condition: service_healthy }
-      alloy: { condition: service_started }
+  # kafka-example-consumer:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.examples
+  #     target: consumer
+  #   container_name: kafka-example-consumer
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 256M
+  #   networks:
+  #     - app-network
+  #     - monitoring
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC:-orders}
+  #     KAFKA_BROKERS: kafka:9092
+  #     OTEL_EXPORTER_OTLP_ENDPOINT: alloy:4317
+  #   depends_on:
+  #     kafka: { condition: service_healthy }
+  #     alloy: { condition: service_started }
 
 volumes:
   redis-data:
@@ -191,5 +210,7 @@ volumes:
   kafka-data:
 
 networks:
+  app-network:
+    driver: bridge
   monitoring:
     driver: bridge

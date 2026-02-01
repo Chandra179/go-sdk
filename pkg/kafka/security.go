@@ -5,13 +5,14 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"time"
 
 	kafkago "github.com/segmentio/kafka-go"
 )
 
 func CreateDialer(cfg *SecurityConfig) (*kafkago.Dialer, error) {
 	dialer := &kafkago.Dialer{
-		Timeout:   10 * 1000000000,
+		Timeout:   10 * time.Second,
 		DualStack: true,
 	}
 
@@ -38,7 +39,9 @@ func loadTLSConfig(cfg *SecurityConfig) (*tls.Config, error) {
 	}
 
 	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to parse CA certificate")
+	}
 
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},

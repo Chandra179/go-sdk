@@ -58,6 +58,32 @@ func (l *Loader) requireInt(key string) int {
 	return intValue
 }
 
+func (l *Loader) getEnvIntOrDefault(key string, defaultValue int) int {
+	value, exists := os.LookupEnv(key)
+	if !exists || value == "" {
+		return defaultValue
+	}
+	intValue, err := strconv.Atoi(value)
+	if err != nil {
+		l.errs = append(l.errs, errors.New("invalid int for "+key+": "+value))
+		return defaultValue
+	}
+	return intValue
+}
+
+func (l *Loader) getEnvDurationOrDefault(key string, defaultValue time.Duration) time.Duration {
+	value, exists := os.LookupEnv(key)
+	if !exists || value == "" {
+		return defaultValue
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		l.errs = append(l.errs, errors.New("invalid duration for "+key+": "+value))
+		return defaultValue
+	}
+	return duration
+}
+
 func (l *Loader) requireInt64(key string) int64 {
 	value := l.requireEnv(key)
 	if value == "" {

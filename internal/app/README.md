@@ -2,59 +2,91 @@
 
 Application initialization, dependency injection, and HTTP server setup.
 
+## Architecture
+
+This package follows the **Composition Root** pattern with clear separation of concerns:
+
+![App architecture](/img/app_arch.png)
+
+
+### Key Components
+
+1. **Provider** (`provider.go`) - The composition root that wires all dependencies
+   - `Infrastructure`: Holds all infrastructure (DB, cache, Kafka, etc.)
+   - `Services`: Holds all domain services (auth, session)
+   - Manages resource lifecycle (initialization and shutdown)
+
+2. **Server** (`server.go`) - HTTP transport layer
+   - Only concern: HTTP routing and handling
+   - Receives all dependencies from Provider
+   - Lightweight and focused
+
+3. **Bootstrap** (`bootstrap/`) - Low-level initialization helpers
+   - Used by Provider to create concrete implementations
+   - Focused initialization functions
+
 ## Directory Structure
 
 ```
 internal/app/
-├── bootstrap/          # Component initialization
+├── bootstrap/           # Component initialization helpers
 │   ├── database.go      # Database and migrations
-│   ├── cache.go        # Cache/Redis initialization
-│   ├── oauth2.go       # OAuth2 manager
-│   ├── event.go        # Kafka/Event system
-│   ├── migrations.go   # Database migrations
-│   └── observability.go # OTEL tracing, metrics, logging
-├── health/             # Health check endpoints
-│   ├── checker.go      # Health checker implementation
-│   └── checker_test.go # Health checker tests
-├── middleware/         # HTTP middleware
-│   ├── auth.go         # Session authentication
-│   ├── logging.go      # Request logging
-│   ├── request_id.go   # Request ID injection
-│   └── cors.go         # CORS handling
-├── routes/             # HTTP route setup
-│   ├── infra.go        # Infrastructure routes (metrics, swagger, health)
-│   ├── auth.go         # Authentication routes
-│   └── event.go       # Event/message broker routes
-├── server.go           # Main server struct and lifecycle
-└── README.md           # This file
+│   ├── cache.go         # Cache/Redis initialization
+│   ├── oauth2.go        # OAuth2 manager
+│   ├── kafka.go         # Kafka/Event system
+│   ├── migrations.go    # Database migrations
+│   └── otel.go          # OTEL tracing, metrics, logging
+├── health/              # Health check endpoints
+│   └── checker.go       # Health checker implementation
+├── middleware/          # HTTP middleware
+│   ├── auth.go          # Session authentication
+│   ├── logging.go       # Request logging
+│   ├── request_id.go    # Request ID injection
+│   └── cors.go          # CORS handling
+├── routes/              # HTTP route setup
+│   ├── infra.go         # Infrastructure routes (metrics, swagger, health)
+│   └── auth.go          # Authentication routes
+├── provider.go          # Composition root, dependency injection
+├── http_server.go       # HTTP transport layer
+└── README.md            # This file
 ```
 
 ## Design Principles
 
-1. **Interface-based dependency injection** - Functions depend on interfaces, not concrete implementations
-2. **Clear separation of concerns** - Each subdirectory has a single responsibility
-3. **Configurable behavior** - Migration paths and sampler ratios are environment-configurable
-4. **Graceful shutdown** - All resources are properly closed on shutdown
-5. **Middleware-first** - Request ID, logging, CORS applied before route handlers
+1. **Composition Root** - Single place (`Provider`) where the entire dependency graph is constructed
+2. **Clear Layer Separation**
+   - Infrastructure: Stateful external resources (DB, cache, etc.)
+   - Services: Stateless business logic
+   - Server: HTTP transport only
+3. **No Circular Dependencies** - Callback pattern breaks OAuth2 ↔ AuthService cycle
+4. **Graceful Shutdown** - Resources closed in reverse order of initialization
+5. **Fail-Fast Cleanup** - Resources cleaned up if initialization fails partway
+6. **Interface-based Dependencies** - All layers depend on interfaces for testability
 
-## Configuration
+## Usage
 
-New environment variables added:
-- `MIGRATION_PATH` - Database migration file path (default: `db/migrations`)
-- `OTEL_SAMPLER_RATIO` - OTEL trace sampling ratio (0.0-1.0, default: 0.1)
+```go
+// In main.go or cmd/myapp/main.go
 
-## Testing
+// 1. Create the Provider (initializes all infrastructure and services)
+provider, err := app.NewProvider(ctx, config)
+if err != nil {
+    log.Fatalf("Failed to initialize: %v", err)
+}
 
-Run tests:
-```bash
-go test ./internal/app/... -v
-go test ./internal/app/... -cover
+// 2. Create the Server
+server, err := app.NewServer(provider)
+if err != nil {
+    provider.Infra.Close(ctx)
+    log.Fatalf("Failed to create server: %v", err)
+}
+
+// 3. Run
+if err := server.Run(); err != nil {
+    log.Fatal(err)
+}
+
+// 4. Shutdown (on signal)
+server.Shutdown(ctx)
+provider.Infra.Close(ctx)
 ```
-
-## Key Changes from Original
-
-1. **Subdirectory organization** - Split flat files into logical packages
-2. **Middleware layer** - Added auth, logging, request ID, CORS middleware
-3. **Configurable values** - Migration path and sampler ratio no longer hardcoded
-4. **Improved test structure** - Health tests moved to health package
-5. **Better separation** - Bootstrap functions isolated in own package

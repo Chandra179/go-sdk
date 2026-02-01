@@ -91,7 +91,6 @@ func Run() {
 			CompressionType: "snappy",
 			MaxAttempts:     5,
 			Async:           false,
-			CommitInterval:  1000 * time.Millisecond,
 		},
 		Consumer: kafka.ConsumerConfig{
 			MinBytes:              1024,

@@ -52,7 +52,11 @@ func (c *KafkaClient) Producer() (Producer, error) {
 	defer c.mu.Unlock()
 
 	if c.producer == nil {
-		c.producer = NewKafkaProducer(&c.config.Producer, c.brokers, c.dialer, c.logger)
+		producer, err := NewKafkaProducer(&c.config.Producer, c.brokers, c.dialer, c.logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create producer: %w", err)
+		}
+		c.producer = producer
 	}
 
 	return c.producer, nil
@@ -69,6 +73,7 @@ func (c *KafkaClient) Consumer(groupID string, topics []string) (Consumer, error
 
 	if _, exists := c.consumers[consumerKey]; !exists {
 		consumer := NewKafkaConsumer(&c.config.Consumer, c.brokers, groupID, topics, c.dialer, c.logger)
+		consumer.SetRetryConfig(c, c.config.Retry)
 		c.consumers[consumerKey] = consumer
 		c.topicMap[consumerKey] = topics
 	}
@@ -80,22 +85,25 @@ func (c *KafkaClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var err error
+	var errs []error
 
 	if c.producer != nil {
 		if closeErr := c.producer.Close(); closeErr != nil {
-			err = closeErr
+			errs = append(errs, fmt.Errorf("failed to close producer: %w", closeErr))
 		}
 	}
 
 	for groupID, consumer := range c.consumers {
 		if closeErr := consumer.Close(); closeErr != nil {
-			err = closeErr
+			errs = append(errs, fmt.Errorf("failed to close consumer %s: %w", groupID, closeErr))
 		}
 		delete(c.consumers, groupID)
 	}
 
-	return err
+	if len(errs) > 0 {
+		return fmt.Errorf("close errors: %v", errs)
+	}
+	return nil
 }
 
 func (c *KafkaClient) Ping(ctx context.Context) error {
@@ -131,7 +139,6 @@ type ProducerConfig struct {
 	CompressionType string
 	MaxAttempts     int
 	Async           bool
-	CommitInterval  time.Duration
 }
 
 type ConsumerConfig struct {
@@ -162,7 +169,6 @@ func NewConfig(cfg *cfg.KafkaConfig) *Config {
 			CompressionType: cfg.Producer.CompressionType,
 			MaxAttempts:     cfg.Producer.MaxAttempts,
 			Async:           cfg.Producer.Async,
-			CommitInterval:  cfg.Producer.CommitInterval,
 		},
 		Consumer: ConsumerConfig{
 			MinBytes:              cfg.Consumer.MinBytes,

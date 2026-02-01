@@ -6,8 +6,8 @@ import (
 	"gosdk/pkg/db"
 )
 
-func InitDatabase(dsn string, migrationPath string) (db.DB, error) {
-	dbClient, err := db.NewSQLClient("postgres", dsn)
+func InitDatabase(dsn string, migrationPath string, connConfig db.ConnectionConfig) (db.DB, error) {
+	dbClient, err := db.NewSQLClient("postgres", dsn, connConfig)
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}

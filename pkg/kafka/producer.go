@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gosdk/pkg/logger"
@@ -28,9 +29,24 @@ type KafkaProducer struct {
 	logger          logger.Logger
 }
 
-func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dialer, logger logger.Logger) *KafkaProducer {
-	acks := acksMap[cfg.RequiredAcks]
-	compression := kafkago.Compression(compressionCodeMap[cfg.CompressionType])
+func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dialer, logger logger.Logger) (*KafkaProducer, error) {
+	// Validate compression type
+	compressionCode, ok := compressionCodeMap[cfg.CompressionType]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidCompression, cfg.CompressionType)
+	}
+
+	// Validate acks value
+	acks, ok := acksMap[cfg.RequiredAcks]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidAcks, cfg.RequiredAcks)
+	}
+
+	// Get the compression codec - compressionCodeMap already returns the int code
+	var compressionCodec kafkago.CompressionCodec
+	if int(compressionCode) < len(kafkacompress.Codecs) {
+		compressionCodec = kafkacompress.Codecs[compressionCode]
+	}
 
 	writer := kafkago.NewWriter(kafkago.WriterConfig{
 		Brokers:          brokers,
@@ -42,13 +58,14 @@ func NewKafkaProducer(cfg *ProducerConfig, brokers []string, dialer *kafkago.Dia
 		Dialer:           dialer,
 		ReadTimeout:      10 * time.Second,
 		WriteTimeout:     10 * time.Second,
-		CompressionCodec: kafkacompress.Codecs[compression],
+		CompressionCodec: compressionCodec,
+		BatchTimeout:     time.Duration(cfg.LingerMs) * time.Millisecond,
 	})
 	return &KafkaProducer{
 		writer:          writer,
 		compressionType: cfg.CompressionType,
 		logger:          logger,
-	}
+	}, nil
 }
 
 func (p *KafkaProducer) Publish(ctx context.Context, msg Message) error {
