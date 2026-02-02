@@ -2,9 +2,7 @@
 
 This project is a Go template demonstrating reusable packages and runnable example services.
 
-## API Documentation (Swagger)
-
-Once the application is running, access the Swagger UI at:
+## API (Swagger)
 ```
 http://localhost:8080/swagger/index.html
 ```

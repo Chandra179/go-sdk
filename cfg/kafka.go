@@ -33,6 +33,20 @@ const (
 	validAcksAll    = "all"
 	validAcksNone   = "none"
 	validAcksLeader = "leader"
+
+	validPartitionStrategyHash       = "hash"
+	validPartitionStrategyRoundRobin = "roundrobin"
+	validPartitionStrategyLeastBytes = "leastbytes"
+
+	defaultPartitionStrategy      = "hash"
+	defaultProducerMaxMessageSize = 1048576 // 1MB
+
+	defaultPoolMaxConnections  = 10
+	defaultPoolIdleTimeoutSecs = 300 // 5 minutes
+
+	defaultIdempotencyEnabled      = true
+	defaultIdempotencyWindowSecs   = 300 // 5 minutes
+	defaultIdempotencyMaxCacheSize = 10000
 )
 
 type RetryConfig struct {
@@ -46,14 +60,22 @@ type RetryConfig struct {
 	RetryTopicSuffix     string
 }
 
+type IdempotencyConfig struct {
+	Enabled           bool
+	WindowSizeSeconds int
+	MaxCacheSize      int
+}
+
 type ProducerConfig struct {
-	RequiredAcks    string
-	BatchSize       int
-	LingerMs        int
-	CompressionType string
-	MaxAttempts     int
-	Async           bool
-	CommitInterval  time.Duration
+	RequiredAcks      string
+	BatchSize         int
+	LingerMs          int
+	CompressionType   string
+	MaxAttempts       int
+	Async             bool
+	CommitInterval    time.Duration
+	MaxMessageSize    int
+	PartitionStrategy string
 }
 
 type ConsumerConfig struct {
@@ -64,6 +86,12 @@ type ConsumerConfig struct {
 	HeartbeatInterval     time.Duration
 	SessionTimeout        time.Duration
 	WatchPartitionChanges bool
+	StartOffset           string
+}
+
+type PoolConfig struct {
+	MaxConnections     int
+	IdleTimeoutSeconds int
 }
 
 type SecurityConfig struct {
@@ -73,12 +101,33 @@ type SecurityConfig struct {
 	TLSCAFile   string
 }
 
+type SchemaRegistryConfig struct {
+	Enabled         bool
+	URL             string
+	Username        string
+	Password        string
+	Format          string
+	CacheTTLSeconds int
+}
+
+type TransactionConfig struct {
+	Enabled        bool
+	TransactionID  string
+	TimeoutSeconds int
+	MaxRetries     int
+	RetryBackoffMs int
+}
+
 type KafkaConfig struct {
-	Brokers  []string
-	Producer ProducerConfig
-	Consumer ConsumerConfig
-	Security SecurityConfig
-	Retry    RetryConfig
+	Brokers        []string
+	Producer       ProducerConfig
+	Consumer       ConsumerConfig
+	Security       SecurityConfig
+	Retry          RetryConfig
+	Pool           PoolConfig
+	Idempotency    IdempotencyConfig
+	SchemaRegistry SchemaRegistryConfig
+	Transaction    TransactionConfig
 }
 
 func (l *Loader) loadKafka() *KafkaConfig {
@@ -93,13 +142,22 @@ func (l *Loader) loadKafka() *KafkaConfig {
 	consumer := l.loadConsumerConfig()
 	security := l.loadSecurityConfig()
 	retry := l.loadRetryConfig()
+	pool := l.loadPoolConfig()
+
+	idempotency := l.loadIdempotencyConfig()
+	transaction := l.loadTransactionConfig()
+	schemaRegistry := l.loadSchemaRegistryConfig()
 
 	return &KafkaConfig{
-		Brokers:  brokerList,
-		Producer: *producer,
-		Consumer: *consumer,
-		Security: *security,
-		Retry:    *retry,
+		Brokers:        brokerList,
+		Producer:       *producer,
+		Consumer:       *consumer,
+		Security:       *security,
+		Retry:          *retry,
+		Pool:           *pool,
+		Idempotency:    *idempotency,
+		Transaction:    *transaction,
+		SchemaRegistry: *schemaRegistry,
 	}
 }
 
@@ -116,20 +174,28 @@ func (l *Loader) loadProducerConfig() *ProducerConfig {
 		l.errs = append(l.errs, err)
 	}
 
+	partitionStrategy := l.getEnvWithDefault("KAFKA_PRODUCER_PARTITION_STRATEGY", defaultPartitionStrategy)
+	if err := validatePartitionStrategy(partitionStrategy); err != nil {
+		l.errs = append(l.errs, err)
+	}
+
 	batchSize := l.getEnvIntWithDefault("KAFKA_PRODUCER_BATCH_SIZE", defaultProducerBatchSize)
 	lingerMs := l.getEnvIntWithDefault("KAFKA_PRODUCER_LINGER_MS", defaultProducerLingerMs)
 	maxAttempts := l.getEnvIntWithDefault("KAFKA_PRODUCER_MAX_ATTEMPTS", defaultProducerMaxAttempts)
 	async := l.getEnvBoolWithDefault("KAFKA_PRODUCER_ASYNC", defaultProducerAsync)
 	commitIntervalMs := l.getEnvIntWithDefault("KAFKA_PRODUCER_COMMIT_INTERVAL_MS", int(defaultProducerCommitInterval/time.Millisecond))
+	maxMessageSize := l.getEnvIntWithDefault("KAFKA_PRODUCER_MAX_MESSAGE_SIZE", defaultProducerMaxMessageSize)
 
 	return &ProducerConfig{
-		RequiredAcks:    acks,
-		BatchSize:       batchSize,
-		LingerMs:        lingerMs,
-		CompressionType: compression,
-		MaxAttempts:     maxAttempts,
-		Async:           async,
-		CommitInterval:  time.Duration(commitIntervalMs) * time.Millisecond,
+		RequiredAcks:      acks,
+		BatchSize:         batchSize,
+		LingerMs:          lingerMs,
+		CompressionType:   compression,
+		MaxAttempts:       maxAttempts,
+		Async:             async,
+		CommitInterval:    time.Duration(commitIntervalMs) * time.Millisecond,
+		MaxMessageSize:    maxMessageSize,
+		PartitionStrategy: partitionStrategy,
 	}
 }
 
@@ -141,6 +207,7 @@ func (l *Loader) loadConsumerConfig() *ConsumerConfig {
 	heartbeatIntervalMs := l.getEnvIntWithDefault("KAFKA_CONSUMER_HEARTBEAT_INTERVAL_MS", int(defaultConsumerHeartbeatInterval/time.Millisecond))
 	sessionTimeoutMs := l.getEnvIntWithDefault("KAFKA_CONSUMER_SESSION_TIMEOUT_MS", int(defaultConsumerSessionTimeout/time.Millisecond))
 	watchPartitionChanges := l.getEnvBoolWithDefault("KAFKA_CONSUMER_WATCH_PARTITION_CHANGES", defaultConsumerWatchPartitionChanges)
+	startOffset := l.getEnvWithDefault("KAFKA_CONSUMER_START_OFFSET", "latest")
 
 	return &ConsumerConfig{
 		MinBytes:              minBytes,
@@ -150,6 +217,7 @@ func (l *Loader) loadConsumerConfig() *ConsumerConfig {
 		HeartbeatInterval:     time.Duration(heartbeatIntervalMs) * time.Millisecond,
 		SessionTimeout:        time.Duration(sessionTimeoutMs) * time.Millisecond,
 		WatchPartitionChanges: watchPartitionChanges,
+		StartOffset:           startOffset,
 	}
 }
 
@@ -206,6 +274,80 @@ func (l *Loader) loadRetryConfig() *RetryConfig {
 	}
 }
 
+func (l *Loader) loadPoolConfig() *PoolConfig {
+	maxConns := l.getEnvIntWithDefault("KAFKA_POOL_MAX_CONNECTIONS", defaultPoolMaxConnections)
+	idleTimeoutSecs := l.getEnvIntWithDefault("KAFKA_POOL_IDLE_TIMEOUT_SECONDS", defaultPoolIdleTimeoutSecs)
+
+	return &PoolConfig{
+		MaxConnections:     maxConns,
+		IdleTimeoutSeconds: idleTimeoutSecs,
+	}
+}
+
+func (l *Loader) loadIdempotencyConfig() *IdempotencyConfig {
+	enabled := l.getEnvBoolWithDefault("KAFKA_IDEMPOTENCY_ENABLED", true)
+	windowSizeSecs := l.getEnvIntWithDefault("KAFKA_IDEMPOTENCY_WINDOW_SECONDS", 300) // 5 minutes
+	maxCacheSize := l.getEnvIntWithDefault("KAFKA_IDEMPOTENCY_MAX_CACHE_SIZE", 10000)
+
+	return &IdempotencyConfig{
+		Enabled:           enabled,
+		WindowSizeSeconds: windowSizeSecs,
+		MaxCacheSize:      maxCacheSize,
+	}
+}
+
+func (l *Loader) loadTransactionConfig() *TransactionConfig {
+	enabled := l.getEnvBoolWithDefault("KAFKA_TRANSACTION_ENABLED", false)
+	transactionID := l.getEnvWithDefault("KAFKA_TRANSACTION_ID", "")
+	timeoutSecs := l.getEnvIntWithDefault("KAFKA_TRANSACTION_TIMEOUT_SECONDS", 60)
+	maxRetries := l.getEnvIntWithDefault("KAFKA_TRANSACTION_MAX_RETRIES", 3)
+	retryBackoffMs := l.getEnvIntWithDefault("KAFKA_TRANSACTION_RETRY_BACKOFF_MS", 100)
+
+	return &TransactionConfig{
+		Enabled:        enabled,
+		TransactionID:  transactionID,
+		TimeoutSeconds: timeoutSecs,
+		MaxRetries:     maxRetries,
+		RetryBackoffMs: retryBackoffMs,
+	}
+}
+
+func (l *Loader) loadSchemaRegistryConfig() *SchemaRegistryConfig {
+	enabled := l.getEnvBoolWithDefault("KAFKA_SCHEMA_REGISTRY_ENABLED", false)
+	url := l.getEnvWithDefault("KAFKA_SCHEMA_REGISTRY_URL", "")
+	username := l.getEnvWithDefault("KAFKA_SCHEMA_REGISTRY_USERNAME", "")
+	password := l.getEnvWithDefault("KAFKA_SCHEMA_REGISTRY_PASSWORD", "")
+	format := l.getEnvWithDefault("KAFKA_SCHEMA_REGISTRY_FORMAT", "avro")
+	cacheTTLSecs := l.getEnvIntWithDefault("KAFKA_SCHEMA_REGISTRY_CACHE_TTL_SECONDS", 3600) // 1 hour
+
+	if enabled && url == "" {
+		l.errs = append(l.errs, errors.New("KAFKA_SCHEMA_REGISTRY_URL is required when schema registry is enabled"))
+	}
+
+	if format != "" {
+		validFormats := []string{"avro", "json", "protobuf"}
+		isValid := false
+		for _, valid := range validFormats {
+			if format == valid {
+				isValid = true
+				break
+			}
+		}
+		if !isValid {
+			l.errs = append(l.errs, errors.New("invalid schema registry format: "+format+", must be one of: avro, json, protobuf"))
+		}
+	}
+
+	return &SchemaRegistryConfig{
+		Enabled:         enabled,
+		URL:             url,
+		Username:        username,
+		Password:        password,
+		Format:          format,
+		CacheTTLSeconds: cacheTTLSecs,
+	}
+}
+
 func validateCompression(compression string) error {
 	validTypes := []string{
 		validCompressionNone,
@@ -234,6 +376,22 @@ func validateAcks(acks string) error {
 	}
 
 	return errors.New("invalid acks: " + acks + ", must be one of: " + strings.Join(validAcks, ", "))
+}
+
+func validatePartitionStrategy(strategy string) error {
+	validStrategies := []string{
+		validPartitionStrategyHash,
+		validPartitionStrategyRoundRobin,
+		validPartitionStrategyLeastBytes,
+	}
+
+	for _, validStrategy := range validStrategies {
+		if strategy == validStrategy {
+			return nil
+		}
+	}
+
+	return errors.New("invalid partition strategy: " + strategy + ", must be one of: " + strings.Join(validStrategies, ", "))
 }
 
 func validateFileExists(filepath string) error {

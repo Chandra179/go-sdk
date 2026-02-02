@@ -1,38 +1,3 @@
-// Package oauth2 provides OAuth2 and OIDC authentication support.
-//
-// This package implements secure OAuth2 flows with PKCE (Proof Key for Code Exchange)
-// and OIDC (OpenID Connect) support. It is designed to be extensible for multiple
-// identity providers.
-//
-// Basic usage:
-//
-//	config := &oauth2.ManagerConfig{
-//	    StateTimeout:    10 * time.Minute,
-//	    CallbackHandler: myCallbackHandler,
-//	}
-//
-//	manager, err := oauth2.NewManagerWithGoogle(ctx, config, clientID, clientSecret, redirectURL)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Generate auth URL
-//	authURL, err := manager.GetAuthURL("google")
-//
-//	// In your HTTP handler
-//	router.GET("/auth/callback/google", oauth2.GoogleCallbackHandler(manager, nil))
-//
-// Security features:
-//   - PKCE (RFC 7636) protection against authorization code interception
-//   - State parameter for CSRF protection
-//   - Nonce validation for replay attack prevention
-//   - Secure, HTTP-only cookies for session management
-//   - Thread-safe operations
-//
-// Thread safety:
-//   - Manager methods are safe for concurrent use
-//   - StateStorage implementations are safe for concurrent use
-//   - Provider implementations should be safe for concurrent use
 package oauth2
 
 import (
