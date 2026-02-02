@@ -89,6 +89,8 @@ func Run() {
 	}
 
 	// Create minimal kafka config for examples
+	// Idempotency is enabled by default - messages with identical content within the
+	// deduplication window will be automatically skipped
 	kafkaConfig := &kafka.Config{
 		Brokers: brokers,
 		Producer: kafka.ProducerConfig{
@@ -120,6 +122,12 @@ func Run() {
 			ShortRetryAttempts:   3,
 			MaxLongRetryAttempts: 3,
 			RetryTopicSuffix:     ".retry",
+		},
+		// Idempotency configuration - enabled by default with 5-minute window
+		Idempotency: kafka.IdempotencyConfig{
+			Enabled:      true,
+			WindowSize:   5 * time.Minute,
+			MaxCacheSize: 10000,
 		},
 	}
 

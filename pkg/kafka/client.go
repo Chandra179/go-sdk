@@ -16,14 +16,17 @@ import (
 // The producer and consumers are only created when first accessed to optimize
 // resource usage and startup performance.
 type KafkaClient struct {
-	config    *Config
-	brokers   []string
-	dialer    *kafkago.Dialer
-	logger    logger.Logger
-	producer  *KafkaProducer            // lazily initialized singleton producer
-	consumers map[string]*KafkaConsumer // lazily initialized consumers by group ID
-	topicMap  map[string][]string       // tracks topics per consumer group
-	mu        sync.RWMutex
+	config         *Config
+	brokers        []string
+	dialer         *kafkago.Dialer
+	logger         logger.Logger
+	producer       Producer                  // lazily initialized singleton producer (interface)
+	consumers      map[string]*KafkaConsumer // lazily initialized consumers by group ID
+	topicMap       map[string][]string       // tracks topics per consumer group
+	connPool       *ConnectionPool           // connection pool for better resource utilization
+	connManager    *ConnectionManager        // manages multiple connection pools
+	schemaRegistry *SchemaRegistry           // schema registry client for data governance
+	mu             sync.RWMutex
 }
 
 // NewClient creates a new Kafka client without initializing producer or consumers.
@@ -35,24 +38,52 @@ func NewClient(cfg *Config, logger logger.Logger) (Client, error) {
 		return nil, fmt.Errorf("failed to create dialer: %w", err)
 	}
 
-	return &KafkaClient{
-		config:    cfg,
-		brokers:   cfg.Brokers,
-		dialer:    dialer,
-		logger:    logger,
-		consumers: make(map[string]*KafkaConsumer),
-		topicMap:  make(map[string][]string),
-	}, nil
+	// Initialize connection pool with configuration
+	poolCfg := cfg.Pool
+	if poolCfg.MaxConnections == 0 {
+		poolCfg = DefaultConnectionPoolConfig()
+	}
+	connPool := NewConnectionPool(dialer, poolCfg)
+	connManager := NewConnectionManager(dialer, poolCfg)
+
+	client := &KafkaClient{
+		config:      cfg,
+		brokers:     cfg.Brokers,
+		dialer:      dialer,
+		logger:      logger,
+		consumers:   make(map[string]*KafkaConsumer),
+		topicMap:    make(map[string][]string),
+		connPool:    connPool,
+		connManager: connManager,
+	}
+
+	// Initialize schema registry if enabled
+	if cfg.SchemaRegistryConfig.Enabled {
+		sr, err := NewSchemaRegistry(cfg.SchemaRegistryConfig, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create schema registry: %w", err)
+		}
+		client.schemaRegistry = sr
+	}
+
+	return client, nil
 }
 
-// Producer returns a lazily initialized singleton producer instance.
+// Producer returns a lazily initialized singleton producer instance with optional idempotency.
 // The producer is created only on first call to optimize startup performance.
+// Idempotency is configured via the Idempotency field in Config.
 func (c *KafkaClient) Producer() (Producer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.producer == nil {
-		producer, err := NewKafkaProducer(&c.config.Producer, c.brokers, c.dialer, c.logger)
+		// Use configured idempotency settings or defaults
+		idemCfg := c.config.Idempotency
+		if idemCfg.WindowSize == 0 {
+			idemCfg = DefaultIdempotencyConfig()
+		}
+
+		producer, err := NewKafkaProducer(&c.config.Producer, c.brokers, c.dialer, idemCfg, c.logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create producer: %w", err)
 		}
@@ -100,6 +131,24 @@ func (c *KafkaClient) Close() error {
 		delete(c.consumers, groupID)
 	}
 
+	// Close connection pools
+	if c.connPool != nil {
+		if closeErr := c.connPool.Close(); closeErr != nil {
+			errs = append(errs, fmt.Errorf("failed to close connection pool: %w", closeErr))
+		}
+	}
+
+	if c.connManager != nil {
+		if closeErr := c.connManager.Close(); closeErr != nil {
+			errs = append(errs, fmt.Errorf("failed to close connection manager: %w", closeErr))
+		}
+	}
+
+	// Close schema registry if present
+	if c.schemaRegistry != nil {
+		c.schemaRegistry.ClearCache()
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("close errors: %v", errs)
 	}
@@ -116,30 +165,49 @@ func (c *KafkaClient) Ping(ctx context.Context) error {
 	}
 	defer func() {
 		if closeErr := conn.Close(); closeErr != nil {
-			// Log the close error but don't fail the original operation
-			_ = closeErr // TODO: Consider logging this
+			_ = closeErr
 		}
 	}()
 
 	return nil
 }
 
+// ConnectionPool returns the connection pool for direct use
+func (c *KafkaClient) ConnectionPool() *ConnectionPool {
+	return c.connPool
+}
+
+// ConnectionManager returns the connection manager for direct use
+func (c *KafkaClient) ConnectionManager() *ConnectionManager {
+	return c.connManager
+}
+
+// SchemaRegistry returns the schema registry client for data governance
+func (c *KafkaClient) SchemaRegistry() *SchemaRegistry {
+	return c.schemaRegistry
+}
+
 type Config struct {
-	Brokers  []string
-	Producer ProducerConfig
-	Consumer ConsumerConfig
-	Security SecurityConfig
-	Retry    RetryConfig
+	Brokers              []string
+	Producer             ProducerConfig
+	Consumer             ConsumerConfig
+	Security             SecurityConfig
+	Retry                RetryConfig
+	Pool                 ConnectionPoolConfig
+	Idempotency          IdempotencyConfig
+	SchemaRegistryConfig SchemaRegistryConfig
+	Transaction          TransactionConfig
 }
 
 type ProducerConfig struct {
-	RequiredAcks    string
-	BatchSize       int
-	LingerMs        int
-	CompressionType string
-	MaxAttempts     int
-	Async           bool
-	MaxMessageSize  int // Maximum message size in bytes (0 = 1MB default)
+	RequiredAcks      string
+	BatchSize         int
+	LingerMs          int
+	CompressionType   string
+	MaxAttempts       int
+	Async             bool
+	MaxMessageSize    int
+	PartitionStrategy PartitionStrategy
 }
 
 type ConsumerConfig struct {
@@ -150,7 +218,7 @@ type ConsumerConfig struct {
 	HeartbeatInterval     time.Duration
 	SessionTimeout        time.Duration
 	WatchPartitionChanges bool
-	StartOffset           StartOffset // Where to start consuming (earliest, latest, none)
+	StartOffset           StartOffset
 }
 
 type SecurityConfig struct {
@@ -160,17 +228,24 @@ type SecurityConfig struct {
 	TLSCAFile   string
 }
 
-// NewConfig creates a new Kafka Config from the central configuration
 func NewConfig(cfg *cfg.KafkaConfig) *Config {
 	return &Config{
 		Brokers: cfg.Brokers,
+		Idempotency: IdempotencyConfig{
+			Enabled:      cfg.Idempotency.Enabled,
+			WindowSize:   time.Duration(cfg.Idempotency.WindowSizeSeconds) * time.Second,
+			MaxCacheSize: cfg.Idempotency.MaxCacheSize,
+			KeyPrefix:    "",
+		},
 		Producer: ProducerConfig{
-			RequiredAcks:    cfg.Producer.RequiredAcks,
-			BatchSize:       cfg.Producer.BatchSize,
-			LingerMs:        cfg.Producer.LingerMs,
-			CompressionType: cfg.Producer.CompressionType,
-			MaxAttempts:     cfg.Producer.MaxAttempts,
-			Async:           cfg.Producer.Async,
+			RequiredAcks:      cfg.Producer.RequiredAcks,
+			BatchSize:         cfg.Producer.BatchSize,
+			LingerMs:          cfg.Producer.LingerMs,
+			CompressionType:   cfg.Producer.CompressionType,
+			MaxAttempts:       cfg.Producer.MaxAttempts,
+			Async:             cfg.Producer.Async,
+			MaxMessageSize:    cfg.Producer.MaxMessageSize,
+			PartitionStrategy: PartitionStrategy(cfg.Producer.PartitionStrategy),
 		},
 		Consumer: ConsumerConfig{
 			MinBytes:              cfg.Consumer.MinBytes,
@@ -180,6 +255,18 @@ func NewConfig(cfg *cfg.KafkaConfig) *Config {
 			HeartbeatInterval:     cfg.Consumer.HeartbeatInterval,
 			SessionTimeout:        cfg.Consumer.SessionTimeout,
 			WatchPartitionChanges: cfg.Consumer.WatchPartitionChanges,
+			StartOffset: func(s string) StartOffset {
+				switch s {
+				case "earliest":
+					return StartOffsetEarliest
+				case "latest":
+					return StartOffsetLatest
+				case "none":
+					return StartOffsetNone
+				default:
+					return StartOffsetLatest
+				}
+			}(cfg.Consumer.StartOffset),
 		},
 		Security: SecurityConfig{
 			Enabled:     cfg.Security.Enabled,
@@ -196,6 +283,25 @@ func NewConfig(cfg *cfg.KafkaConfig) *Config {
 			ShortRetryAttempts:   cfg.Retry.ShortRetryAttempts,
 			MaxLongRetryAttempts: cfg.Retry.MaxLongRetryAttempts,
 			RetryTopicSuffix:     cfg.Retry.RetryTopicSuffix,
+		},
+		Pool: ConnectionPoolConfig{
+			MaxConnections: cfg.Pool.MaxConnections,
+			IdleTimeout:    time.Duration(cfg.Pool.IdleTimeoutSeconds) * time.Second,
+		},
+		SchemaRegistryConfig: SchemaRegistryConfig{
+			Enabled:  cfg.SchemaRegistry.Enabled,
+			URL:      cfg.SchemaRegistry.URL,
+			Username: cfg.SchemaRegistry.Username,
+			Password: cfg.SchemaRegistry.Password,
+			Format:   SchemaFormat(cfg.SchemaRegistry.Format),
+			CacheTTL: time.Duration(cfg.SchemaRegistry.CacheTTLSeconds) * time.Second,
+		},
+		Transaction: TransactionConfig{
+			Enabled:       cfg.Transaction.Enabled,
+			TransactionID: cfg.Transaction.TransactionID,
+			Timeout:       time.Duration(cfg.Transaction.TimeoutSeconds) * time.Second,
+			MaxRetries:    cfg.Transaction.MaxRetries,
+			RetryBackoff:  time.Duration(cfg.Transaction.RetryBackoffMs) * time.Millisecond,
 		},
 	}
 }

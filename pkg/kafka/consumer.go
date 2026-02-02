@@ -12,14 +12,16 @@ import (
 )
 
 type KafkaConsumer struct {
-	reader   *kafkago.Reader
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	groupID  string
-	logger   logger.Logger
-	client   Client
-	retryCfg RetryConfig
-	topics   []string
+	reader         *kafkago.Reader
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	groupID        string
+	logger         logger.Logger
+	client         Client
+	retryCfg       RetryConfig
+	topics         []string
+	metrics        *KafkaMetrics
+	schemaRegistry *SchemaRegistry
 }
 
 func NewKafkaConsumer(cfg *ConsumerConfig, brokers []string, groupID string, topics []string, dialer *kafkago.Dialer, logger logger.Logger) *KafkaConsumer {
@@ -62,6 +64,16 @@ func NewKafkaConsumer(cfg *ConsumerConfig, brokers []string, groupID string, top
 func (c *KafkaConsumer) SetRetryConfig(client Client, retryCfg RetryConfig) {
 	c.client = client
 	c.retryCfg = retryCfg
+}
+
+// SetMetrics sets the metrics collector for the consumer
+func (c *KafkaConsumer) SetMetrics(metrics *KafkaMetrics) {
+	c.metrics = metrics
+}
+
+// SetSchemaRegistry sets the schema registry for schema-aware consuming
+func (c *KafkaConsumer) SetSchemaRegistry(schemaRegistry *SchemaRegistry) {
+	c.schemaRegistry = schemaRegistry
 }
 
 func (c *KafkaConsumer) logError(ctx context.Context, msg string, fields ...logger.Field) {
@@ -136,6 +148,10 @@ func (c *KafkaConsumer) processMessageWithRetry(
 		if err := SendToDLQ(ctx, c.client, c.logger, dlqTopic, message, handlerErr); err != nil {
 			return fmt.Errorf("failed to send to DLQ: %w", err)
 		}
+		// Record DLQ metrics
+		if c.metrics != nil {
+			c.metrics.RecordDLQ(ctx, message.Topic, dlqTopic)
+		}
 		return nil // Message successfully routed to DLQ
 	}
 
@@ -143,6 +159,10 @@ func (c *KafkaConsumer) processMessageWithRetry(
 	retryTopic := buildRetryTopic(message.Topic, c.retryCfg.RetryTopicSuffix)
 	if err := SendToRetryTopic(ctx, c.client, c.logger, retryTopic, message, handlerErr, newRetryCount, firstFailedAt); err != nil {
 		return fmt.Errorf("failed to send to retry topic: %w", err)
+	}
+	// Record retry metrics
+	if c.metrics != nil {
+		c.metrics.RecordRetry(ctx, message.Topic, newRetryCount)
 	}
 
 	return nil // Message successfully routed to retry topic
@@ -184,13 +204,19 @@ func (c *KafkaConsumer) Start(ctx context.Context, handler ConsumerHandler) erro
 				}
 
 				// Record consumer lag with simple error handling
+				var lag int64 = -1
 				if c.reader != nil {
-					lag := c.reader.Lag()
+					lag = c.reader.Lag()
 					if lag >= 0 {
 						c.logger.Debug(ctx, "Consumer lag",
 							logger.Field{Key: "partition", Value: msg.Partition},
 							logger.Field{Key: "lag", Value: lag})
 					}
+				}
+
+				// Record metrics if available
+				if c.metrics != nil {
+					c.metrics.RecordConsume(ctx, msg.Topic, msg.Partition, lag)
 				}
 
 				headers := make(map[string]string)
@@ -223,9 +249,17 @@ func (c *KafkaConsumer) Start(ctx context.Context, handler ConsumerHandler) erro
 				}
 
 				// Commit message after successful processing or successful retry/DLQ routing
-				if err := c.reader.CommitMessages(ctx, msg); err != nil {
+				commitStart := time.Now()
+				commitErr := c.reader.CommitMessages(ctx, msg)
+
+				// Record commit metrics if available
+				if c.metrics != nil {
+					c.metrics.RecordCommit(ctx, msg.Topic, msg.Partition, time.Since(commitStart), commitErr)
+				}
+
+				if commitErr != nil {
 					c.logError(ctx, "Error committing message",
-						logger.Field{Key: "error", Value: err},
+						logger.Field{Key: "error", Value: commitErr},
 						logger.Field{Key: "offset", Value: msg.Offset})
 				}
 			}
@@ -240,6 +274,7 @@ func (c *KafkaConsumer) Close() error {
 		c.cancel()
 	}
 	c.wg.Wait()
+	c.schemaRegistry = nil
 	if c.reader != nil {
 		return c.reader.Close()
 	}

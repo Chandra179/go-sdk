@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"time"
 
 	kafkago "github.com/segmentio/kafka-go"
 )
@@ -35,6 +36,14 @@ func DefaultAdminConfig() AdminConfig {
 func NewKafkaAdmin(brokers []string, dialer *kafkago.Dialer) (*KafkaAdmin, error) {
 	if len(brokers) == 0 {
 		return nil, fmt.Errorf("%w: at least one broker required", ErrRequiredBrokers)
+	}
+
+	// Create default dialer if none provided
+	if dialer == nil {
+		dialer = &kafkago.Dialer{
+			Timeout:   10 * time.Second,
+			DualStack: true,
+		}
 	}
 
 	return &KafkaAdmin{
