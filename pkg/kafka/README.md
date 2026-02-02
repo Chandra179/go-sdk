@@ -16,47 +16,21 @@ A comprehensive Kafka client library for Go providing producers, consumers, and 
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph Client["KafkaClient - Entry Point"]
-        direction TB
-        C["KafkaClient"]
-        C -->|"Producer()"| P["KafkaProducer\n(singleton, lazy)"]
-        C -->|"Consumer()"| Con["KafkaConsumer\n(per group+topics)"]
-        C -->|"Admin"| A["KafkaAdmin"]
-        C -->|"ConnectionPool"| CP["ConnectionPool"]
-        C -->|"SchemaRegistry"| SR["SchemaRegistry"]
-    end
+![Otel architecture](/img/kafka_arch.png)
 
-    subgraph Producer["KafkaProducer"]
-        direction TB
-        P1["Idempotency\n(Deduplication)"]
-        P2["Compression\n(gzip/snappy/lz4/zstd)"]
-        P3["Partitioning\n(hash/roundrobin/leastbytes)"]
-        P4["Batching"]
-        P5["Metrics\n(OTEL)"]
-    end
+### Component Overview
 
-    subgraph Consumer["KafkaConsumer"]
-        direction TB
-        Con1["Auto-retry\n(exp backoff)"]
-        Con2["DLQ Routing\n(Dead Letter Queue)"]
-        Con3["Schema Decode\n(Avro/JSON/Protobuf)"]
-        Con4["Consumer Lag\nMonitoring"]
-        Con5["Metrics\n(OTEL)"]
-    end
-
-    subgraph Resilience["Resilience Layer"]
-        direction LR
-        R1["CircuitBreaker\n(Fail fast)"]
-        R2["ConnectionPool\n(Pool reuse)"]
-        R3["RetryDLQ\n(Short/Long retries)"]
-        R4["Transactions\n(EOS)"]
-        R5["Metrics\n(OTEL)"]
-    end
-
-    P --> Resilience
-    Con --> Resilience
+| Component | Type | Purpose |
+|-----------|------|---------|
+| `KafkaClient` | Singleton | Entry point; lazy initialization of producer/consumers |
+| `KafkaProducer` | Singleton | Publish messages with idempotency, compression, partitioning |
+| `KafkaConsumer` | Per group+topics | Consume with auto-retry, DLQ routing, schema decoding |
+| `KafkaAdmin` | On-demand | Topic management, auto-create DLQ/retry topics |
+| `ConnectionPool` | Shared | Reusable Kafka connections per broker |
+| `CircuitBreaker` | Per producer | Fail-fast protection for cascading failures |
+| `Retry/DLQ` | Consumer logic | Short/long retries with dead letter queue routing |
+| `SchemaRegistry` | Shared | Avro/JSON/Protobuf encode/decode via Confluent SR |
+| `OTEL Metrics` | Shared | Publish/consume/retry/DLQ/circuit breaker metrics |
 
     style Client fill:#e1f5fe
     style Producer fill:#e8f5e8
