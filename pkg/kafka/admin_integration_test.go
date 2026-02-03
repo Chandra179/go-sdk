@@ -13,15 +13,15 @@ func TestAdmin_CreateTopic(t *testing.T) {
 	requireKafka(t)
 	ctx := context.Background()
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
 	topic := "test-create-topic-" + randomString(8)
-	err = admin.EnsureTopicExists(ctx, topic, 1, 1)
+	err = admin.CreateTopic(ctx, topic, 1, 1, nil)
 	require.NoError(t, err)
 
-	// Verify topic exists
 	exists, err := admin.TopicExists(ctx, topic)
 	require.NoError(t, err)
 	assert.True(t, exists, "topic should exist after creation")
@@ -34,7 +34,8 @@ func TestAdmin_TopicExists_True(t *testing.T) {
 	topic := "test-topic-exists-" + randomString(8)
 	createTopic(t, ctx, topic)
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
@@ -47,7 +48,8 @@ func TestAdmin_TopicExists_False(t *testing.T) {
 	requireKafka(t)
 	ctx := context.Background()
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
@@ -64,7 +66,8 @@ func TestAdmin_DeleteTopic(t *testing.T) {
 	topic := "test-delete-topic-" + randomString(8)
 	createTopic(t, ctx, topic)
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
@@ -85,73 +88,74 @@ func TestAdmin_DeleteTopic(t *testing.T) {
 	}, 10*time.Second, 500*time.Millisecond, "topic should be deleted")
 }
 
-func TestAdmin_InitConsumerTopics(t *testing.T) {
+func TestAdmin_ValidateTopics(t *testing.T) {
 	requireKafka(t)
 	ctx := context.Background()
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
 	topics := []string{
-		"test-init-consumer-1-" + randomString(8),
-		"test-init-consumer-2-" + randomString(8),
+		"test-validate-topics-1-" + randomString(8),
+		"test-validate-topics-2-" + randomString(8),
 	}
 
-	// Create main topics
+	// Create topics
 	for _, topic := range topics {
-		err = admin.EnsureTopicExists(ctx, topic, 1, 1)
+		err = admin.CreateTopic(ctx, topic, 1, 1, nil)
 		require.NoError(t, err)
 	}
 
-	// Manually create DLQ and retry topics with replication factor 1
-	for _, topic := range topics {
-		dlqTopic := topic + ".dlq"
-		retryTopic := topic + ".retry"
+	// Validate all topics exist
+	err = admin.ValidateTopicsExist(ctx, topics)
+	require.NoError(t, err, "all topics should exist")
 
-		err = admin.EnsureTopicExists(ctx, dlqTopic, 1, 1)
-		require.NoError(t, err)
+	// Test validation with non-existent topic
+	invalidTopics := append(topics, "non-existent-topic-"+randomString(8))
+	err = admin.ValidateTopicsExist(ctx, invalidTopics)
+	assert.Error(t, err, "validation should fail with non-existent topic")
+	assert.Contains(t, err.Error(), "topics not found")
+}
 
-		err = admin.EnsureTopicExists(ctx, retryTopic, 1, 1)
-		require.NoError(t, err)
-	}
+func TestAdmin_ValidateTopicsWithRetry(t *testing.T) {
+	requireKafka(t)
+	ctx := context.Background()
 
-	// Verify all topics exist
-	for _, topic := range topics {
-		exists, err := admin.TopicExists(ctx, topic)
-		require.NoError(t, err)
-		assert.True(t, exists, "main topic should exist: "+topic)
-	}
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
+	require.NoError(t, err)
+	defer admin.Close()
 
-	// Verify DLQ topics
-	for _, topic := range topics {
-		dlqTopic := topic + ".dlq"
-		exists, err := admin.TopicExists(ctx, dlqTopic)
-		require.NoError(t, err)
-		assert.True(t, exists, "DLQ topic should exist: "+dlqTopic)
-	}
+	topic := "test-validate-retry-" + randomString(8)
 
-	// Verify retry topics
-	for _, topic := range topics {
-		retryTopic := topic + ".retry"
-		exists, err := admin.TopicExists(ctx, retryTopic)
-		require.NoError(t, err)
-		assert.True(t, exists, "retry topic should exist: "+retryTopic)
-	}
+	// Validation should fail before topic is created
+	err = admin.ValidateTopicsExist(ctx, []string{topic})
+	assert.Error(t, err, "validation should fail before topic creation")
+
+	// Create topic
+	err = admin.CreateTopic(ctx, topic, 1, 1, nil)
+	require.NoError(t, err)
+
+	// Validation with retry should succeed
+	err = admin.ValidateTopicsExistWithRetry(ctx, []string{topic})
+	require.NoError(t, err, "validation with retry should succeed after topic creation")
 }
 
 func TestAdmin_DefaultPartitions(t *testing.T) {
 	requireKafka(t)
 	ctx := context.Background()
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
 	topic := "test-default-partitions-" + randomString(8)
 
 	// Create topic with default partitions (0 = use default)
-	err = admin.EnsureTopicExists(ctx, topic, 0, 0)
+	err = admin.CreateTopic(ctx, topic, 0, 0, nil)
 	require.NoError(t, err)
 
 	// Verify topic exists
@@ -164,12 +168,13 @@ func TestAdmin_MultipleBrokers(t *testing.T) {
 	requireKafka(t)
 	ctx := context.Background()
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
 	topic := "test-multi-broker-" + randomString(8)
-	err = admin.EnsureTopicExists(ctx, topic, 1, 1)
+	err = admin.CreateTopic(ctx, topic, 1, 1, nil)
 	require.NoError(t, err)
 
 	exists, err := admin.TopicExists(ctx, topic)
@@ -184,12 +189,13 @@ func TestAdmin_TopicAlreadyExists(t *testing.T) {
 	topic := "test-exists-already-" + randomString(8)
 	createTopic(t, ctx, topic)
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
-	// Try to create same topic again - should not error
-	err = admin.EnsureTopicExists(ctx, topic, 1, 1)
+	// Try to create same topic again - should not error (idempotent)
+	err = admin.CreateTopic(ctx, topic, 1, 1, nil)
 	assert.NoError(t, err, "creating existing topic should not error")
 }
 
@@ -197,24 +203,27 @@ func TestAdmin_EmptyTopicName(t *testing.T) {
 	requireKafka(t)
 	ctx := context.Background()
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
-	err = admin.EnsureTopicExists(ctx, "", 3, 1)
+	err = admin.CreateTopic(ctx, "", 3, 1, nil)
 	assert.Error(t, err, "empty topic name should error")
 	assert.Contains(t, err.Error(), "cannot be empty")
 }
 
 func TestAdmin_NoBrokers(t *testing.T) {
-	_, err := NewKafkaAdmin([]string{}, nil)
+	cfg := DefaultAdminConfig()
+	_, err := NewKafkaAdmin([]string{}, &cfg)
 	assert.Error(t, err, "no brokers should error")
 }
 
 func TestAdmin_Close(t *testing.T) {
 	requireKafka(t)
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 
 	err = admin.Close()

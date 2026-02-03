@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/sony/gobreaker"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -224,7 +225,7 @@ func (km *KafkaMetrics) RecordDLQ(ctx context.Context, originalTopic string, dlq
 }
 
 // RecordCircuitBreakerState records circuit breaker state changes
-func (km *KafkaMetrics) RecordCircuitBreakerState(ctx context.Context, name string, state CircuitState) {
+func (km *KafkaMetrics) RecordCircuitBreakerState(ctx context.Context, name string, state gobreaker.State) {
 	attrs := []attribute.KeyValue{
 		attribute.String("name", name),
 	}

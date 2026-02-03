@@ -3,58 +3,133 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
-	kafkago "github.com/segmentio/kafka-go"
+	"github.com/avast/retry-go/v4"
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// KafkaAdmin provides administrative operations for Kafka
 type KafkaAdmin struct {
-	brokers []string
-	dialer  *kafkago.Dialer
+	admClient  *kadm.Client
+	timeout    time.Duration
+	maxRetries uint
+	retryDelay time.Duration
 }
 
-// AdminConfig holds configuration for Kafka admin operations
 type AdminConfig struct {
-	DefaultPartitions     int
-	DefaultReplication    int
-	AutoCreateDLQTopics   bool
-	AutoCreateRetryTopics bool
+	DefaultPartitions  int
+	DefaultReplication int
+	Timeout            time.Duration
+	MaxRetries         uint
+	RetryDelay         time.Duration
 }
 
-// DefaultAdminConfig returns sensible defaults for admin configuration
 func DefaultAdminConfig() AdminConfig {
 	return AdminConfig{
-		DefaultPartitions:     3,
-		DefaultReplication:    2,
-		AutoCreateDLQTopics:   true,
-		AutoCreateRetryTopics: true,
+		DefaultPartitions:  3,
+		DefaultReplication: 2,
+		Timeout:            10 * time.Second,
+		MaxRetries:         3,
+		RetryDelay:         1 * time.Second,
 	}
 }
 
-// NewKafkaAdmin creates a new Kafka admin client
-func NewKafkaAdmin(brokers []string, dialer *kafkago.Dialer) (*KafkaAdmin, error) {
+func NewKafkaAdmin(brokers []string, cfg *AdminConfig) (*KafkaAdmin, error) {
 	if len(brokers) == 0 {
 		return nil, fmt.Errorf("%w: at least one broker required", ErrRequiredBrokers)
 	}
 
-	// Create default dialer if none provided
-	if dialer == nil {
-		dialer = &kafkago.Dialer{
-			Timeout:   10 * time.Second,
-			DualStack: true,
-		}
+	if cfg == nil {
+		defaultCfg := DefaultAdminConfig()
+		cfg = &defaultCfg
+	}
+
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(brokers...),
+		kgo.Dialer((&net.Dialer{Timeout: cfg.Timeout}).DialContext),
+	}
+
+	admClient, err := kadm.NewOptClient(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create admin client: %w", err)
 	}
 
 	return &KafkaAdmin{
-		brokers: brokers,
-		dialer:  dialer,
+		admClient:  admClient,
+		timeout:    cfg.Timeout,
+		maxRetries: cfg.MaxRetries,
+		retryDelay: cfg.RetryDelay,
 	}, nil
 }
 
-// EnsureTopicExists checks if a topic exists and creates it if necessary
-func (a *KafkaAdmin) EnsureTopicExists(ctx context.Context, topic string, partitions int, replicationFactor int) error {
-	// Validate inputs
+func (a *KafkaAdmin) TopicExists(ctx context.Context, topic string) (bool, error) {
+	if topic == "" {
+		return false, fmt.Errorf("topic name cannot be empty")
+	}
+
+	topics, err := a.admClient.ListTopics(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to list topics: %w", err)
+	}
+
+	for _, t := range topics {
+		if t.Topic == topic {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (a *KafkaAdmin) ValidateTopicsExist(ctx context.Context, topics []string) error {
+	if len(topics) == 0 {
+		return fmt.Errorf("no topics specified for validation")
+	}
+
+	existingTopics, err := a.admClient.ListTopics(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list topics: %w", err)
+	}
+
+	existingSet := make(map[string]bool)
+	for _, t := range existingTopics {
+		existingSet[t.Topic] = true
+	}
+
+	var missingTopics []string
+	for _, topic := range topics {
+		if topic == "" {
+			continue
+		}
+		if !existingSet[topic] {
+			missingTopics = append(missingTopics, topic)
+		}
+	}
+
+	if len(missingTopics) > 0 {
+		return fmt.Errorf("topics not found: %v. Ensure topics are created via your infrastructure tooling", missingTopics)
+	}
+
+	return nil
+}
+
+func (a *KafkaAdmin) ValidateTopicsExistWithRetry(ctx context.Context, topics []string) error {
+	return retry.Do(
+		func() error {
+			return a.ValidateTopicsExist(ctx, topics)
+		},
+		retry.Context(ctx),
+		retry.Attempts(a.maxRetries),
+		retry.Delay(a.retryDelay),
+		retry.DelayType(retry.BackOffDelay),
+		retry.MaxDelay(5*time.Second),
+		retry.LastErrorOnly(true),
+	)
+}
+
+func (a *KafkaAdmin) CreateTopic(ctx context.Context, topic string, partitions int, replicationFactor int, configEntries map[string]string) error {
 	if topic == "" {
 		return fmt.Errorf("topic name cannot be empty")
 	}
@@ -65,112 +140,60 @@ func (a *KafkaAdmin) EnsureTopicExists(ctx context.Context, topic string, partit
 		replicationFactor = 1
 	}
 
-	// Check if topic exists by trying to create a connection to it
-	exists, err := a.TopicExists(ctx, topic)
-	if err != nil {
-		return fmt.Errorf("failed to check topic existence: %w", err)
-	}
-	if exists {
-		return nil // Topic already exists
+	configs := make(map[string]*string)
+	for k, v := range configEntries {
+		configs[k] = &v
 	}
 
-	// Create topic using kafka-go's topic creation via connection to controller
-	conn, err := a.dialer.DialContext(ctx, "tcp", a.brokers[0])
+	resp, err := a.admClient.CreateTopics(ctx, int32(partitions), int16(replicationFactor), configs, topic)
 	if err != nil {
-		return fmt.Errorf("failed to connect to Kafka: %w", err)
-	}
-	defer conn.Close()
-
-	// Create topic
-	topicConfigs := []kafkago.TopicConfig{
-		{
-			Topic:             topic,
-			NumPartitions:     partitions,
-			ReplicationFactor: replicationFactor,
-			ConfigEntries: []kafkago.ConfigEntry{
-				{
-					ConfigName:  "retention.ms",
-					ConfigValue: "604800000", // 7 days default retention
-				},
-			},
-		},
-	}
-
-	err = conn.CreateTopics(topicConfigs...)
-	if err != nil {
-		// Check if the error is because topic already exists
-		if err.Error() == "topic already exists" {
-			return nil
-		}
 		return fmt.Errorf("failed to create topic %s: %w", topic, err)
 	}
 
-	return nil
-}
-
-// InitializeTopicsForConsumer ensures DLQ and retry topics exist for given topics
-func (a *KafkaAdmin) InitializeTopicsForConsumer(ctx context.Context, topics []string, cfg RetryConfig) error {
-	if !cfg.DLQEnabled {
-		return nil
-	}
-
-	for _, topic := range topics {
-		// Ensure DLQ topic exists
-		dlqTopic := buildDLQTopic(topic, cfg.DLQTopicPrefix)
-		if err := a.EnsureTopicExists(ctx, dlqTopic, 3, 2); err != nil {
-			return fmt.Errorf("failed to ensure DLQ topic %s: %w", dlqTopic, err)
-		}
-
-		// Ensure retry topic exists
-		retryTopic := buildRetryTopic(topic, cfg.RetryTopicSuffix)
-		if err := a.EnsureTopicExists(ctx, retryTopic, 3, 2); err != nil {
-			return fmt.Errorf("failed to ensure retry topic %s: %w", retryTopic, err)
+	for _, t := range resp {
+		if t.Err != nil {
+			if containsSubstring(t.Err.Error(), "topic already exists") {
+				continue
+			}
+			return fmt.Errorf("failed to create topic %s: %w", topic, t.Err)
 		}
 	}
 
 	return nil
 }
 
-// Close closes the admin client
-func (a *KafkaAdmin) Close() error {
-	return nil
-}
-
-// TopicExists checks if a topic exists
-func (a *KafkaAdmin) TopicExists(ctx context.Context, topic string) (bool, error) {
-	conn, err := a.dialer.DialContext(ctx, "tcp", a.brokers[0])
-	if err != nil {
-		return false, fmt.Errorf("failed to connect to Kafka: %w", err)
-	}
-	defer conn.Close()
-
-	// List all topics
-	partitions, err := conn.ReadPartitions()
-	if err != nil {
-		return false, fmt.Errorf("failed to read partitions: %w", err)
-	}
-
-	for _, p := range partitions {
-		if p.Topic == topic {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-// DeleteTopic deletes a topic (use with caution!)
 func (a *KafkaAdmin) DeleteTopic(ctx context.Context, topic string) error {
-	conn, err := a.dialer.DialContext(ctx, "tcp", a.brokers[0])
-	if err != nil {
-		return fmt.Errorf("failed to connect to Kafka: %w", err)
+	if topic == "" {
+		return fmt.Errorf("topic name cannot be empty")
 	}
-	defer conn.Close()
 
-	err = conn.DeleteTopics(topic)
+	resp, err := a.admClient.DeleteTopics(ctx, topic)
 	if err != nil {
 		return fmt.Errorf("failed to delete topic %s: %w", topic, err)
 	}
 
+	for _, t := range resp {
+		if t.Err != nil {
+			return fmt.Errorf("failed to delete topic %s: %w", topic, t.Err)
+		}
+	}
+
 	return nil
+}
+
+func (a *KafkaAdmin) Close() error {
+	a.admClient.Close()
+	return nil
+}
+
+func containsSubstring(s, substr string) bool {
+	if len(substr) > len(s) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

@@ -5,87 +5,86 @@ import (
 	"fmt"
 	"gosdk/cfg"
 	"gosdk/pkg/logger"
+	"net"
 	"strings"
 	"sync"
 	"time"
 
-	kafkago "github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// KafkaClient provides lazy initialization for Kafka producers and consumers.
-// The producer and consumers are only created when first accessed to optimize
-// resource usage and startup performance.
 type KafkaClient struct {
 	config         *Config
 	brokers        []string
-	dialer         *kafkago.Dialer
+	client         *kgo.Client
 	logger         logger.Logger
-	producer       Producer                  // lazily initialized singleton producer (interface)
-	consumers      map[string]*KafkaConsumer // lazily initialized consumers by group ID
-	topicMap       map[string][]string       // tracks topics per consumer group
-	connPool       *ConnectionPool           // connection pool for better resource utilization
-	connManager    *ConnectionManager        // manages multiple connection pools
-	schemaRegistry *SchemaRegistry           // schema registry client for data governance
+	producer       Producer
+	consumers      map[string]*KafkaConsumer
+	topicMap       map[string][]string
+	schemaRegistry *SchemaRegistry
 	mu             sync.RWMutex
 }
 
-// NewClient creates a new Kafka client without initializing producer or consumers.
-// Producer and consumers are lazily initialized on first access to avoid
-// unnecessary resource allocation and connection overhead.
 func NewClient(cfg *Config, logger logger.Logger) (Client, error) {
-	dialer, err := CreateDialer(&cfg.Security)
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(cfg.Brokers...),
+		kgo.Dialer((&net.Dialer{Timeout: 10 * time.Second}).DialContext),
+	}
+
+	if cfg.Security.Enabled {
+		tlsConfig, err := CreateTLSConfig(&cfg.Security)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TLS config: %w", err)
+		}
+		opts = append(opts, kgo.DialTLSConfig(tlsConfig))
+	}
+
+	if cfg.Idempotency.Enabled {
+		opts = append(opts, kgo.TransactionalID(cfg.Idempotency.KeyPrefix))
+	}
+
+	client, err := kgo.NewClient(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create dialer: %w", err)
+		return nil, fmt.Errorf("failed to create franz-go client: %w", err)
 	}
 
-	// Initialize connection pool with configuration
-	poolCfg := cfg.Pool
-	if poolCfg.MaxConnections == 0 {
-		poolCfg = DefaultConnectionPoolConfig()
-	}
-	connPool := NewConnectionPool(dialer, poolCfg)
-	connManager := NewConnectionManager(dialer, poolCfg)
-
-	client := &KafkaClient{
-		config:      cfg,
-		brokers:     cfg.Brokers,
-		dialer:      dialer,
-		logger:      logger,
-		consumers:   make(map[string]*KafkaConsumer),
-		topicMap:    make(map[string][]string),
-		connPool:    connPool,
-		connManager: connManager,
+	kafkaClient := &KafkaClient{
+		config:    cfg,
+		brokers:   cfg.Brokers,
+		client:    client,
+		logger:    logger,
+		consumers: make(map[string]*KafkaConsumer),
+		topicMap:  make(map[string][]string),
 	}
 
-	// Initialize schema registry if enabled
 	if cfg.SchemaRegistryConfig.Enabled {
 		sr, err := NewSchemaRegistry(cfg.SchemaRegistryConfig, logger)
 		if err != nil {
+			client.Close()
 			return nil, fmt.Errorf("failed to create schema registry: %w", err)
 		}
-		client.schemaRegistry = sr
+		kafkaClient.schemaRegistry = sr
 	}
 
-	return client, nil
+	return kafkaClient, nil
 }
 
-// Producer returns a lazily initialized singleton producer instance with optional idempotency.
-// The producer is created only on first call to optimize startup performance.
-// Idempotency is configured via the Idempotency field in Config.
 func (c *KafkaClient) Producer() (Producer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.producer == nil {
-		// Use configured idempotency settings or defaults
 		idemCfg := c.config.Idempotency
 		if idemCfg.WindowSize == 0 {
 			idemCfg = DefaultIdempotencyConfig()
 		}
 
-		producer, err := NewKafkaProducer(&c.config.Producer, c.brokers, c.dialer, idemCfg, c.logger)
+		producer, err := NewKafkaProducer(&c.config.Producer, c.client, idemCfg, c.logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create producer: %w", err)
+		}
+		if c.schemaRegistry != nil {
+			producer.SetSchemaRegistry(c.schemaRegistry)
 		}
 		c.producer = producer
 	}
@@ -93,18 +92,21 @@ func (c *KafkaClient) Producer() (Producer, error) {
 	return c.producer, nil
 }
 
-// Consumer returns a lazily initialized consumer for the specified group ID and topics.
-// Creates a new consumer instance only if one doesn't already exist for the group ID with the same topics.
 func (c *KafkaClient) Consumer(groupID string, topics []string) (Consumer, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Create a unique key for the consumer based on group ID and topics
 	consumerKey := groupID + ":" + strings.Join(topics, ",")
 
 	if _, exists := c.consumers[consumerKey]; !exists {
-		consumer := NewKafkaConsumer(&c.config.Consumer, c.brokers, groupID, topics, c.dialer, c.logger)
+		consumer, err := NewKafkaConsumer(&c.config.Consumer, c.brokers, groupID, topics, c.logger)
+		if err != nil {
+			return nil, err
+		}
 		consumer.SetRetryConfig(c, c.config.Retry)
+		if c.schemaRegistry != nil {
+			consumer.SetSchemaRegistry(c.schemaRegistry)
+		}
 		c.consumers[consumerKey] = consumer
 		c.topicMap[consumerKey] = topics
 	}
@@ -131,22 +133,12 @@ func (c *KafkaClient) Close() error {
 		delete(c.consumers, groupID)
 	}
 
-	// Close connection pools
-	if c.connPool != nil {
-		if closeErr := c.connPool.Close(); closeErr != nil {
-			errs = append(errs, fmt.Errorf("failed to close connection pool: %w", closeErr))
-		}
-	}
-
-	if c.connManager != nil {
-		if closeErr := c.connManager.Close(); closeErr != nil {
-			errs = append(errs, fmt.Errorf("failed to close connection manager: %w", closeErr))
-		}
-	}
-
-	// Close schema registry if present
 	if c.schemaRegistry != nil {
 		c.schemaRegistry.ClearCache()
+	}
+
+	if c.client != nil {
+		c.client.Close()
 	}
 
 	if len(errs) > 0 {
@@ -159,31 +151,93 @@ func (c *KafkaClient) Ping(ctx context.Context) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	conn, err := c.dialer.DialContext(ctx, "tcp", c.brokers[0])
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrKafkaConnection, err)
+	result := c.pingAllBrokers(ctx)
+
+	if !result.Healthy {
+		return fmt.Errorf("%w: no brokers reachable (%d/%d attempted)",
+			ErrKafkaConnection, result.Reachable, result.Total)
 	}
-	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
-			_ = closeErr
-		}
-	}()
 
 	return nil
 }
 
-// ConnectionPool returns the connection pool for direct use
-func (c *KafkaClient) ConnectionPool() *ConnectionPool {
-	return c.connPool
+func (c *KafkaClient) PingDetailed(ctx context.Context) *PingResult {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.pingAllBrokers(ctx)
 }
 
-// ConnectionManager returns the connection manager for direct use
-func (c *KafkaClient) ConnectionManager() *ConnectionManager {
-	return c.connManager
+func (c *KafkaClient) pingAllBrokers(ctx context.Context) *PingResult {
+	if len(c.brokers) == 0 {
+		return &PingResult{
+			Healthy: false,
+			Total:   0,
+		}
+	}
+
+	result := &PingResult{
+		Brokers: make([]BrokerStatus, 0, len(c.brokers)),
+		Total:   len(c.brokers),
+	}
+
+	type brokerResult struct {
+		status BrokerStatus
+		index  int
+	}
+
+	resultChan := make(chan brokerResult, len(c.brokers))
+
+	for i, broker := range c.brokers {
+		go func(idx int, addr string) {
+			start := time.Now()
+			status := BrokerStatus{
+				Address: addr,
+				Healthy: false,
+			}
+
+			connCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(connCtx, "tcp", addr)
+			if err != nil {
+				status.Error = err
+			} else {
+				status.Healthy = true
+				status.Latency = time.Since(start)
+				conn.Close()
+			}
+
+			resultChan <- brokerResult{status: status, index: idx}
+		}(i, broker)
+	}
+
+	reachableCount := 0
+	for i := 0; i < len(c.brokers); i++ {
+		brokerResult := <-resultChan
+		result.Brokers = append(result.Brokers, brokerResult.status)
+
+		if brokerResult.status.Healthy {
+			reachableCount++
+		}
+	}
+
+	result.Reachable = reachableCount
+	result.Healthy = reachableCount > 0
+	result.AllHealthy = reachableCount == len(c.brokers)
+
+	return result
 }
 
-// SchemaRegistry returns the schema registry client for data governance
+func (c *KafkaClient) UnderlyingClient() *kgo.Client {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.client
+}
+
 func (c *KafkaClient) SchemaRegistry() *SchemaRegistry {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.schemaRegistry
 }
 
@@ -193,7 +247,6 @@ type Config struct {
 	Consumer             ConsumerConfig
 	Security             SecurityConfig
 	Retry                RetryConfig
-	Pool                 ConnectionPoolConfig
 	Idempotency          IdempotencyConfig
 	SchemaRegistryConfig SchemaRegistryConfig
 	Transaction          TransactionConfig
@@ -283,10 +336,6 @@ func NewConfig(cfg *cfg.KafkaConfig) *Config {
 			ShortRetryAttempts:   cfg.Retry.ShortRetryAttempts,
 			MaxLongRetryAttempts: cfg.Retry.MaxLongRetryAttempts,
 			RetryTopicSuffix:     cfg.Retry.RetryTopicSuffix,
-		},
-		Pool: ConnectionPoolConfig{
-			MaxConnections: cfg.Pool.MaxConnections,
-			IdleTimeout:    time.Duration(cfg.Pool.IdleTimeoutSeconds) * time.Second,
 		},
 		SchemaRegistryConfig: SchemaRegistryConfig{
 			Enabled:  cfg.SchemaRegistry.Enabled,

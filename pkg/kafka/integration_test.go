@@ -112,10 +112,6 @@ func getTestConfig() *Config {
 			MaxLongRetryAttempts: 3,
 			RetryTopicSuffix:     ".retry",
 		},
-		Pool: ConnectionPoolConfig{
-			MaxConnections: 5,
-			IdleTimeout:    5 * time.Minute,
-		},
 		Idempotency: IdempotencyConfig{
 			Enabled:      true,
 			WindowSize:   5 * time.Minute,
@@ -131,11 +127,12 @@ func createTopic(t *testing.T, ctx context.Context, topic string) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	cfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &cfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
-	err = admin.EnsureTopicExists(ctx, topic, 1, 1)
+	err = admin.CreateTopic(ctx, topic, 1, 1, nil)
 	require.NoError(t, err)
 }
 

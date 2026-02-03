@@ -344,27 +344,30 @@ func TestRetry_DLQ_TopicCreation(t *testing.T) {
 	retryTopic := topic + ".retry"
 
 	createTopic(t, ctx, topic)
+	createTopic(t, ctx, dlqTopic)
+	createTopic(t, ctx, retryTopic)
 
 	client, err := NewClient(cfg, testLogger)
 	require.NoError(t, err)
 	defer client.Close()
 
-	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, nil)
+	// Validate that all required topics exist
+	adminCfg := DefaultAdminConfig()
+	admin, err := NewKafkaAdmin([]string{testBrokerAddress}, &adminCfg)
 	require.NoError(t, err)
 	defer admin.Close()
 
-	// Initialize topics for consumer
-	err = admin.InitializeTopicsForConsumer(ctx, []string{topic}, cfg.Retry)
+	err = admin.ValidateTopicsExist(ctx, []string{topic, dlqTopic, retryTopic})
 	require.NoError(t, err)
 
 	// Verify topics exist
 	dlqExists, err := admin.TopicExists(ctx, dlqTopic)
 	require.NoError(t, err)
-	assert.True(t, dlqExists, "DLQ topic should be created")
+	assert.True(t, dlqExists, "DLQ topic should exist")
 
 	retryExists, err := admin.TopicExists(ctx, retryTopic)
 	require.NoError(t, err)
-	assert.True(t, retryExists, "Retry topic should be created")
+	assert.True(t, retryExists, "Retry topic should exist")
 }
 
 func TestRetry_DisabledDLQ(t *testing.T) {

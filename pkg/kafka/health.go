@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -11,6 +12,7 @@ type HealthStatus struct {
 	Status    string                 `json:"status"` // "healthy", "degraded", "unhealthy"
 	Checks    map[string]HealthCheck `json:"checks"`
 	Timestamp time.Time              `json:"timestamp"`
+	Details   *PingResult            `json:"details,omitempty"` // Detailed broker status
 }
 
 // HealthCheck represents an individual health check
@@ -38,7 +40,7 @@ func NewHealthChecker(client Client, timeout time.Duration) *HealthChecker {
 	}
 }
 
-// Check performs a comprehensive health check
+// Check performs a comprehensive health check with detailed broker status
 func (h *HealthChecker) Check(ctx context.Context) HealthStatus {
 	status := HealthStatus{
 		Status:    "healthy",
@@ -46,11 +48,15 @@ func (h *HealthChecker) Check(ctx context.Context) HealthStatus {
 		Timestamp: time.Now(),
 	}
 
-	// Check connectivity
-	connectivityCheck := h.checkConnectivity(ctx)
+	// Check connectivity with detailed broker status
+	connectivityCheck, pingResult := h.checkConnectivityDetailed(ctx)
 	status.Checks["connectivity"] = connectivityCheck
-	if connectivityCheck.Status != "healthy" {
+	status.Details = pingResult
+
+	if connectivityCheck.Status == "unhealthy" {
 		status.Status = "unhealthy"
+	} else if connectivityCheck.Status == "degraded" {
+		status.Status = "degraded"
 	}
 
 	// Check producer health
@@ -63,7 +69,7 @@ func (h *HealthChecker) Check(ctx context.Context) HealthStatus {
 	return status
 }
 
-// CheckLiveness returns a simple liveness check (can we connect?)
+// CheckLiveness returns a simple liveness check (can we connect to any broker?)
 func (h *HealthChecker) CheckLiveness(ctx context.Context) HealthStatus {
 	status := HealthStatus{
 		Status:    "healthy",
@@ -71,40 +77,85 @@ func (h *HealthChecker) CheckLiveness(ctx context.Context) HealthStatus {
 		Timestamp: time.Now(),
 	}
 
-	check := h.checkConnectivity(ctx)
+	check, result := h.checkConnectivityDetailed(ctx)
 	status.Checks["liveness"] = check
-	if check.Status != "healthy" {
+	status.Details = result
+
+	if check.Status == "unhealthy" {
 		status.Status = "unhealthy"
 	}
 
 	return status
 }
 
-// CheckReadiness returns readiness check (is everything operational?)
+// CheckReadiness returns readiness check (is cluster fully operational?)
 func (h *HealthChecker) CheckReadiness(ctx context.Context) HealthStatus {
 	return h.Check(ctx)
 }
 
-func (h *HealthChecker) checkConnectivity(ctx context.Context) HealthCheck {
+// checkConnectivityDetailed checks connectivity and returns detailed broker status
+func (h *HealthChecker) checkConnectivityDetailed(ctx context.Context) (HealthCheck, *PingResult) {
 	start := time.Now()
 
 	pingCtx, cancel := context.WithTimeout(ctx, h.timeout)
 	defer cancel()
 
-	err := h.client.Ping(pingCtx)
-	if err != nil {
+	// Use the detailed ping to get per-broker status
+	result := h.client.PingDetailed(pingCtx)
+
+	if result == nil {
 		return HealthCheck{
 			Status:    "unhealthy",
-			Message:   fmt.Sprintf("Ping failed: %v", err),
+			Message:   "Failed to get ping result",
 			Latency:   time.Since(start),
 			LastError: time.Now(),
+		}, nil
+	}
+
+	// Determine status based on broker connectivity
+	var status string
+	var message string
+
+	if result.AllHealthy {
+		status = "healthy"
+		message = fmt.Sprintf("All %d brokers reachable", result.Total)
+	} else if result.Healthy {
+		status = "degraded"
+		// List unhealthy brokers
+		var unhealthyBrokers []string
+		for _, b := range result.Brokers {
+			if !b.Healthy {
+				unhealthyBrokers = append(unhealthyBrokers, b.Address)
+			}
+		}
+		message = fmt.Sprintf("%d/%d brokers reachable. Unreachable: %s",
+			result.Reachable, result.Total, strings.Join(unhealthyBrokers, ", "))
+	} else {
+		status = "unhealthy"
+		message = fmt.Sprintf("No brokers reachable (%d/%d attempted)",
+			result.Reachable, result.Total)
+	}
+
+	// Calculate average latency from healthy brokers
+	var totalLatency time.Duration
+	var healthyCount int
+	for _, b := range result.Brokers {
+		if b.Healthy {
+			totalLatency += b.Latency
+			healthyCount++
 		}
 	}
 
-	return HealthCheck{
-		Status:  "healthy",
-		Latency: time.Since(start),
+	avgLatency := time.Since(start)
+	if healthyCount > 0 {
+		avgLatency = totalLatency / time.Duration(healthyCount)
 	}
+
+	return HealthCheck{
+		Status:  status,
+		Message: message,
+		Latency: avgLatency,
+	}, result
 }
 
 func (h *HealthChecker) checkProducer(ctx context.Context) HealthCheck {
@@ -162,23 +213,10 @@ func isTopicNotFound(err error) bool {
 	}
 	errStr := err.Error()
 	// Common Kafka error messages for unknown topic
-	return contains(errStr, "Unknown topic") ||
-		contains(errStr, "unknown topic") ||
-		contains(errStr, "TOPIC_AUTHORIZATION_FAILED") ||
-		contains(errStr, "InvalidTopicException")
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) && containsInternal(s, substr)))
-}
-
-func containsInternal(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(errStr, "Unknown topic") ||
+		strings.Contains(errStr, "unknown topic") ||
+		strings.Contains(errStr, "TOPIC_AUTHORIZATION_FAILED") ||
+		strings.Contains(errStr, "InvalidTopicException")
 }
 
 // Healthy returns true if status is healthy

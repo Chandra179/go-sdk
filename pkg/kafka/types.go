@@ -3,7 +3,10 @@ package kafka
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
+
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 var (
@@ -48,6 +51,7 @@ type Client interface {
 	Producer() (Producer, error)
 	Consumer(groupID string, topics []string) (Consumer, error)
 	Ping(ctx context.Context) error
+	PingDetailed(ctx context.Context) *PingResult
 	Close() error
 }
 
@@ -128,4 +132,96 @@ type IdempotencyStats struct {
 	MaxCacheSize int
 	WindowSize   time.Duration
 	WindowStart  time.Time
+}
+
+// PingResult holds detailed result of a cluster ping operation
+type PingResult struct {
+	Healthy       bool           // True if any broker is reachable
+	AllHealthy    bool           // True if all brokers are reachable
+	Brokers       []BrokerStatus // Status of each broker
+	Reachable     int            // Number of reachable brokers
+	Total         int            // Total number of brokers
+	Controller    *BrokerStatus  // Controller status if known
+	MetadataError error          // Error fetching cluster metadata
+}
+
+// BrokerStatus represents the health status of a single broker
+type BrokerStatus struct {
+	Address      string        // Broker address (host:port)
+	Healthy      bool          // Whether broker is reachable
+	Error        error         // Connection error if any
+	Latency      time.Duration // Connection latency
+	IsController bool          // Whether this broker is the controller
+}
+
+// ClusterHealth holds comprehensive cluster health information
+type ClusterHealth struct {
+	Status       string        // "healthy", "degraded", "unhealthy"
+	Timestamp    time.Time     // When check was performed
+	Connectivity PingResult    // Broker connectivity status
+	Metadata     *MetadataInfo // Cluster metadata if available
+}
+
+// MetadataInfo holds cluster metadata from the controller
+type MetadataInfo struct {
+	Topics     int      // Number of topics
+	Partitions int      // Total partitions across all topics
+	Brokers    []string // List of all brokers in cluster
+	Controller string   // Controller broker address
+}
+
+// String returns a human-readable representation of PingResult
+func (p PingResult) String() string {
+	status := "unhealthy"
+	if p.Healthy {
+		if p.AllHealthy {
+			status = "all-healthy"
+		} else {
+			status = "partially-healthy"
+		}
+	}
+	return fmt.Sprintf("Kafka cluster: %s (%d/%d brokers reachable)", status, p.Reachable, p.Total)
+}
+
+// Healthy returns true if at least one broker is reachable
+func (p PingResult) IsHealthy() bool {
+	return p.Healthy
+}
+
+// Degraded returns true if some but not all brokers are reachable
+func (p PingResult) IsDegraded() bool {
+	return p.Healthy && !p.AllHealthy
+}
+
+// toRecord converts our Message type to a kgo.Record for franz-go
+func (m *Message) toRecord() *kgo.Record {
+	headers := make([]kgo.RecordHeader, 0, len(m.Headers))
+	for k, v := range m.Headers {
+		headers = append(headers, kgo.RecordHeader{
+			Key:   k,
+			Value: []byte(v),
+		})
+	}
+
+	return &kgo.Record{
+		Topic:   m.Topic,
+		Key:     m.Key,
+		Value:   m.Value,
+		Headers: headers,
+	}
+}
+
+// fromRecord converts a kgo.Record back to our Message type
+func fromRecord(r *kgo.Record) Message {
+	headers := make(map[string]string, len(r.Headers))
+	for _, h := range r.Headers {
+		headers[h.Key] = string(h.Value)
+	}
+
+	return Message{
+		Topic:   r.Topic,
+		Key:     r.Key,
+		Value:   r.Value,
+		Headers: headers,
+	}
 }

@@ -4,30 +4,18 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"os"
 	"time"
 
-	kafkago "github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-func CreateDialer(cfg *SecurityConfig) (*kafkago.Dialer, error) {
-	dialer := &kafkago.Dialer{
-		Timeout:   10 * time.Second,
-		DualStack: true,
+func CreateTLSConfig(cfg *SecurityConfig) (*tls.Config, error) {
+	if !cfg.Enabled {
+		return nil, nil
 	}
 
-	if cfg.Enabled {
-		tlsConfig, err := loadTLSConfig(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrTLSConfiguration, err)
-		}
-		dialer.TLS = tlsConfig
-	}
-
-	return dialer, nil
-}
-
-func loadTLSConfig(cfg *SecurityConfig) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load TLS key pair: %w", err)
@@ -48,4 +36,25 @@ func loadTLSConfig(cfg *SecurityConfig) (*tls.Config, error) {
 		RootCAs:      caCertPool,
 		MinVersion:   tls.VersionTLS12,
 	}, nil
+}
+
+func CreateDialerOptions(cfg *SecurityConfig) ([]kgo.Opt, error) {
+	var opts []kgo.Opt
+
+	if cfg.Enabled {
+		tlsConfig, err := CreateTLSConfig(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrTLSConfiguration, err)
+		}
+		opts = append(opts, kgo.DialTLSConfig(tlsConfig))
+	}
+
+	return opts, nil
+}
+
+func CreateDialer(timeout time.Duration) *net.Dialer {
+	return &net.Dialer{
+		Timeout:   timeout,
+		DualStack: true,
+	}
 }

@@ -6,13 +6,13 @@ A comprehensive Kafka client library for Go providing producers, consumers, and 
 
 - **Producer**: High-performance message publishing with idempotency, compression, and partition strategies
 - **Consumer**: Group-based consumption with automatic retry, DLQ routing, and schema decoding
-- **Admin**: Topic management, auto-creation of DLQ/retry topics
-- **Resilience**: Circuit breaker, connection pooling, retry with exponential backoff
+- **Admin**: Production-grade topic management with multi-broker failover and controller-aware operations
+- **Resilience**: Circuit breaker protection using sony/gobreaker
 - **Transactions**: Exactly-once semantics (EOS) for atomic produce/consume cycles
 - **Schema Registry**: Avro, JSON Schema, and Protobuf support via Confluent Schema Registry
 - **Observability**: OpenTelemetry metrics for production monitoring
 - **Security**: TLS/mTLS authentication support
-- **Health Checks**: Liveness, readiness, and connectivity probes
+- **Health Checks**: Liveness, readiness, and connectivity probes with per-broker status
 
 ## Architecture
 
@@ -25,12 +25,11 @@ A comprehensive Kafka client library for Go providing producers, consumers, and 
 | `KafkaClient` | Singleton | Entry point; lazy initialization of producer/consumers |
 | `KafkaProducer` | Singleton | Publish messages with idempotency, compression, partitioning |
 | `KafkaConsumer` | Per group+topics | Consume with auto-retry, DLQ routing, schema decoding |
-| `KafkaAdmin` | On-demand | Topic management, auto-create DLQ/retry topics |
-| `ConnectionPool` | Shared | Reusable Kafka connections per broker |
-| `CircuitBreaker` | Per producer | Fail-fast protection for cascading failures |
-| `Retry/DLQ` | Consumer logic | Short/long retries with dead letter queue routing |
+| `KafkaAdmin` | On-demand | Production-grade topic management with controller awareness |
+| `CircuitBreaker` | Per producer | Fail-fast protection using sony/gobreaker |
+| `DLQ` | Consumer logic | Dead letter queue routing for failed messages |
 | `SchemaRegistry` | Shared | Avro/JSON/Protobuf encode/decode via Confluent SR |
-| `OTEL Metrics` | Shared | Publish/consume/retry/DLQ/circuit breaker metrics |
+| `OTEL Metrics` | Shared | Publish/consume/retry/DLQ metrics |
 
     style Client fill:#e1f5fe
     style Producer fill:#e8f5e8
@@ -161,54 +160,58 @@ consumer.Close()
 
 ### KafkaAdmin
 
-Topic management and initialization:
+Production-grade topic management with multi-broker failover and controller-aware operations:
 
 ```go
-admin, _ := kafka.NewKafkaAdmin(brokers, dialer)
+// Create admin client with configuration
+adminCfg := kafka.DefaultAdminConfig()
+admin, _ := kafka.NewKafkaAdmin(brokers, dialer, &adminCfg)
+defer admin.Close()
 
-// Ensure topic exists
-admin.EnsureTopicExists(ctx, "orders", 3, 2)
+// For infrastructure automation - create topics (NOT recommended for application code)
+admin.CreateTopic(ctx, "orders", 3, 2, map[string]string{
+    "retention.ms": "604800000", // 7 days
+})
 
-// Auto-create DLQ and retry topics for consumers
-admin.InitializeTopicsForConsumer(ctx, []string{"orders"}, retryConfig)
+// Production pattern: Validate topics exist before consuming
+// Applications should fail fast if topics don't exist
+err = admin.ValidateTopicsExist(ctx, []string{"orders", "orders.dlq", "orders.retry"})
+if err != nil {
+    log.Fatal("Required topics not found. Create them via Terraform/Ansible.", err)
+}
 
 // Check if topic exists
 exists, _ := admin.TopicExists(ctx, "orders")
+
+// Delete topic (use with caution!)
+admin.DeleteTopic(ctx, "orders")
 ```
+
+**Production Best Practices:**
+
+1. **Never auto-create topics in application code** - Topics should be provisioned via infrastructure-as-code
+2. **Always validate topic existence at startup** - Fail fast with clear error messages
+3. **Use DLQ topics for message durability** - Enable retry/DLQ in consumer config
+4. **Monitor per-broker health** - Use `PingDetailed()` for comprehensive health checks
 
 ## Resilience Patterns
 
 ### Circuit Breaker
 
-Prevents cascading failures by failing fast when Kafka is unavailable:
+Prevents cascading failures by failing fast when Kafka is unavailable. Built on top of [sony/gobreaker](https://github.com/sony/gobreaker):
 
 ```go
-cbConfig := kafka.CircuitBreakerConfig{
+cbSettings := kafka.CircuitBreakerSettings{
     FailureThreshold: 5,        // Open after 5 failures
     SuccessThreshold: 2,        // Close after 2 successes (half-open)
     Timeout:           30 * time.Second,
     HalfOpenMaxCalls:  3,
 }
 
-middleware := kafka.NewCircuitBreakerMiddleware(producer, cbConfig)
+middleware := kafka.NewCircuitBreakerMiddleware(producer, cbSettings)
 middleware.Publish(ctx, msg) // Protected call
 
-state := middleware.State() // closed, open, half-open
-stats := middleware.Stats()
-```
-
-### Connection Pooling
-
-Manages Kafka connections efficiently:
-
-```go
-pool := client.ConnectionPool()
-conn, _ := pool.Acquire(ctx, "tcp", "localhost:9092")
-defer conn.Release()
-
-// Connection manager for multi-broker setups
-manager := client.ConnectionManager()
-pool := manager.GetPool("broker-1:9092")
+state := middleware.State() // Returns sony/gobreaker state
 ```
 
 ### Retry with Dead Letter Queue
@@ -305,21 +308,46 @@ consumer.SetMetrics(metrics)
 
 ### Health Checks
 
-Liveness and readiness probes:
+Liveness and readiness probes with per-broker status:
 
 ```go
+// Basic health check - uses multi-broker failover
 checker := kafka.NewHealthChecker(client, 5*time.Second)
 
-// Full health check
+// Full health check with detailed broker status
 status := checker.Check(ctx)
-fmt.Println(status.Healthy())     // true if all checks pass
-fmt.Println(status.Degraded())    // true if partially degraded
+fmt.Println(status.Healthy())     // true if any broker reachable
+fmt.Println(status.Degraded())    // true if some brokers unreachable
 
-// Liveness (can we connect?)
+// Access detailed broker connectivity
+if status.Details != nil {
+    for _, broker := range status.Details.Brokers {
+        fmt.Printf("Broker %s: %v (latency: %v)\n", 
+            broker.Address, broker.Healthy, broker.Latency)
+    }
+}
+
+// Liveness (can we connect to any broker?)
 liveness := checker.CheckLiveness(ctx)
 
-// Readiness (is operational?)
+// Readiness (is cluster fully operational?)
 readiness := checker.CheckReadiness(ctx)
+```
+
+**Enhanced Ping with Detailed Status:**
+
+```go
+// Get detailed cluster connectivity status
+result := client.PingDetailed(ctx)
+
+fmt.Printf("Cluster: %s\n", result) // "cluster: all-healthy (3/3 brokers reachable)"
+fmt.Printf("Healthy: %v, AllHealthy: %v\n", result.Healthy, result.AllHealthy)
+
+// Check controller status
+if result.Controller != nil {
+    fmt.Printf("Controller: %s (latency: %v)\n", 
+        result.Controller.Address, result.Controller.Latency)
+}
 ```
 
 ## Security
@@ -346,7 +374,6 @@ type Config struct {
     Consumer             ConsumerConfig
     Security             SecurityConfig
     Retry                RetryConfig
-    Pool                 ConnectionPoolConfig
     Idempotency          IdempotencyConfig
     SchemaRegistryConfig SchemaRegistryConfig
     Transaction          TransactionConfig
@@ -365,11 +392,12 @@ type Config struct {
 | Consumer | CommitInterval | 1s |
 | Idempotency | WindowSize | 5m |
 | Idempotency | MaxCacheSize | 10000 |
-| ConnectionPool | MaxConnections | 10 |
-| ConnectionPool | IdleTimeout | 5m |
 | CircuitBreaker | FailureThreshold | 5 |
-| CircuitBreaker | SuccessThreshold | 2 |
 | CircuitBreaker | Timeout | 30s |
+| CircuitBreaker | HalfOpenMaxCalls | 3 |
+| Admin | Timeout | 10s |
+| Admin | MaxRetries | 3 |
+| Admin | RetryDelay | 1s |
 | Retry | InitialBackoff | 100ms |
 | Retry | MaxBackoff | 5000ms |
 | Retry | ShortRetryAttempts | 3 |
@@ -392,9 +420,9 @@ var (
 
 ## Dependencies
 
-- [kafka-go](https://github.com/segmentio/kafka-go) - Kafka client
+- [franz-go](https://github.com/twmb/franz-go) - Kafka client (kgo, kadm)
 - [srclient](https://github.com/riferrei/srclient) - Schema Registry client
-- [retry-go](https://github.com/avast/retry-go) - Retry utilities
+- [sony/gobreaker](https://github.com/sony/gobreaker) - Circuit breaker
 - OpenTelemetry SDK - Metrics and tracing
 
 ## Best Practices
@@ -404,9 +432,13 @@ var (
 3. **Idempotency**: Enable for exactly-once semantics in production
 4. **DLQ**: Always enable for message durability and debugging
 5. **Monitoring**: Wire up OpenTelemetry metrics in production
-6. **Health Checks**: Integrate with Kubernetes probes
+6. **Health Checks**: Integrate with Kubernetes probes using detailed status
 7. **Schema Evolution**: Use backward/forward compatibility in Schema Registry
 8. **Transactions**: Use for financial/payment processing where exactly-once is required
+9. **Topic Management**: Never auto-create topics in application code; use Terraform/Ansible
+10. **Fail Fast**: Validate topic existence at startup and fail with clear errors
+11. **Multi-Broker**: Always configure multiple brokers for high availability
+12. **Controller Awareness**: Admin operations automatically use the Kafka controller
 
 ## License
 
