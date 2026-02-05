@@ -155,52 +155,6 @@ services:
     networks:
       - monitoring
 
-  # kafka-example-producer:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.examples
-  #     target: producer
-  #   container_name: kafka-example-producer
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 256M
-  #   networks:
-  #     - app-network
-  #     - monitoring
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC:-orders}
-  #     KAFKA_BROKERS: kafka:9092
-  #     OTEL_EXPORTER_OTLP_ENDPOINT: alloy:4317
-  #   depends_on:
-  #     kafka: { condition: service_healthy }
-  #     alloy: { condition: service_started }
-
-  # kafka-example-consumer:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.examples
-  #     target: consumer
-  #   container_name: kafka-example-consumer
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 256M
-  #   networks:
-  #     - app-network
-  #     - monitoring
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     KAFKA_ORDERS_TOPIC: ${KAFKA_ORDERS_TOPIC:-orders}
-  #     KAFKA_BROKERS: kafka:9092
-  #     OTEL_EXPORTER_OTLP_ENDPOINT: alloy:4317
-  #   depends_on:
-  #     kafka: { condition: service_healthy }
-  #     alloy: { condition: service_started }
-
 volumes:
   redis-data:
   postgres-data:

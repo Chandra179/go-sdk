@@ -11,7 +11,6 @@ import (
 	"gosdk/internal/service/session"
 	"gosdk/pkg/cache"
 	"gosdk/pkg/db"
-	"gosdk/pkg/kafka"
 	"gosdk/pkg/logger"
 	"gosdk/pkg/oauth2"
 )
@@ -21,7 +20,6 @@ import (
 type Infrastructure struct {
 	DB             db.DB
 	Cache          cache.Cache
-	Kafka          kafka.Client
 	OAuth2Manager  *oauth2.Manager
 	Logger         *logger.AppLogger
 	MetricsHandler http.Handler
@@ -32,13 +30,6 @@ type Infrastructure struct {
 // Resources are closed in reverse order of initialization.
 func (i *Infrastructure) Close(ctx context.Context) error {
 	var errs []error
-
-	if i.Kafka != nil {
-		i.Logger.Info(ctx, "Closing Kafka connections")
-		if err := i.Kafka.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("kafka shutdown: %w", err))
-		}
-	}
 
 	if i.DB != nil {
 		i.Logger.Info(ctx, "Closing database connections")
@@ -86,24 +77,20 @@ type Provider struct {
 // NewProvider creates and initializes all application dependencies.
 // This is the single place where the dependency graph is constructed.
 func NewProvider(ctx context.Context, config *cfg.Config) (*Provider, error) {
-	// Initialize logger first for subsequent logging
 	appLogger := logger.NewLogger(config.AppEnv)
 	appLogger.Info(ctx, "Initializing application provider...")
 
-	// Initialize observability (OTel)
 	shutdownOTel, metricsHandler, err := bootstrap.InitOtel(ctx, &config.Observability, config.Observability.SamplerRatio)
 	if err != nil {
 		return nil, fmt.Errorf("observability setup: %w", err)
 	}
 
-	// Initialize base infrastructure (without OAuth2)
-	infra, err := initBaseInfrastructure(ctx, config, appLogger, shutdownOTel, metricsHandler)
+	infra, err := initBaseInfrastructure(config, appLogger, shutdownOTel, metricsHandler)
 	if err != nil {
-		shutdownOTel(ctx) // Clean up OTel on failure
+		shutdownOTel(ctx)
 		return nil, fmt.Errorf("infrastructure initialization: %w", err)
 	}
 
-	// Initialize session store (needed for auth service)
 	sessionStore := session.NewRedisStore(infra.Cache)
 
 	// Create auth service with OAuth2 callback handler
@@ -120,14 +107,6 @@ func NewProvider(ctx context.Context, config *cfg.Config) (*Provider, error) {
 
 	// Now set the OAuth2 manager in auth service
 	authService.SetOAuth2Manager(oauth2Manager)
-
-	// Initialize Kafka
-	kafkaClient, err := bootstrap.InitKafka(config.Kafka, appLogger)
-	if err != nil {
-		infra.Close(ctx) // Clean up on failure
-		return nil, fmt.Errorf("kafka initialization: %w", err)
-	}
-	infra.Kafka = kafkaClient
 
 	// Create services struct
 	services := &Services{
@@ -147,7 +126,6 @@ func NewProvider(ctx context.Context, config *cfg.Config) (*Provider, error) {
 // initBaseInfrastructure initializes infrastructure dependencies except OAuth2 and Kafka.
 // Order matters: resources are initialized from bottom up.
 func initBaseInfrastructure(
-	ctx context.Context,
 	config *cfg.Config,
 	appLogger *logger.AppLogger,
 	shutdownOTel func(context.Context) error,
