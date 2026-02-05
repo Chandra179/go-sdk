@@ -60,7 +60,6 @@ func (s *Server) setupRoutes() {
 	healthChecker := health.NewChecker(
 		s.provider.Infra.DB,
 		s.provider.Infra.Cache,
-		s.provider.Infra.Kafka,
 		s.logger,
 	)
 	routes.SetupInfra(r, healthChecker, s.provider.Infra.MetricsHandler)

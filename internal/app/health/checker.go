@@ -32,11 +32,10 @@ type KafkaChecker interface {
 	Close() error
 }
 
-func NewChecker(db DBChecker, cache CacheChecker, kafka KafkaChecker, logger logger.Logger) *Checker {
+func NewChecker(db DBChecker, cache CacheChecker, logger logger.Logger) *Checker {
 	return &Checker{
 		db:     db,
 		cache:  cache,
-		kafka:  kafka,
 		logger: logger,
 	}
 }

@@ -17,6 +17,9 @@ bg:
 swag:
 	swag init -g cmd/myapp/main.go -o api
 
+kt:
+	go test ./pkg/kafka/... -v -timeout 300s
+
 # Generate type-safe SQL code using sqlc
 .PHONY: sqlc
 sqlc:
