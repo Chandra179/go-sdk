@@ -50,7 +50,6 @@ http://localhost:8080/swagger/index.html
 ├── pkg/                               # Reusable library packages
 │   ├── cache/                         # Cache interfaces, Redis helpers
 │   ├── db/                            # Database connectors, helpers
-│   ├── idgen/                         # ID generation utilities
 │   ├── kafka/                         # Kafka client and helpers with OpenTelemetry metrics
 │   │   └── README.md                  # Kafka package documentation
 │   ├── logger/                        # Zerolog wrapper & helpers
@@ -76,15 +75,11 @@ http://localhost:8080/swagger/index.html
 │   └── grafana-datasources.yaml       # Grafana datasources
 │
 ├── img/                               # Documentation images
-├── docs/                              # Documentation
-├── AGENTS.md                          # Agent coding guidelines
 ├── Makefile                           # Build commands
 ├── sqlc.yaml                          # sqlc configuration for type-safe SQL
 ├── docker-compose.yml                 # Local services
 ├── Dockerfile                         # Container image
-├── Dockerfile.examples                # Example services container
-├── add-secrets.sh                     # Secrets management helper
-├── test.http                          # API testing file
+├── api.http                          # API testing file
 └── .env.example                       # Environment variables template
 ```
 
