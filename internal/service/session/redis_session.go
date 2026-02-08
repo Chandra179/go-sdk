@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"time"
 
 	"gosdk/pkg/cache"
@@ -77,7 +78,9 @@ func (s *RedisStore) Get(sessionID string) (*Session, error) {
 
 	// Check if session is expired
 	if time.Now().After(session.ExpiresAt) {
-		s.cache.Del(s.ctx, key)
+		if err := s.cache.Del(s.ctx, key); err != nil {
+			log.Printf("Warning: failed to delete expired session from cache: %v", err)
+		}
 		return nil, ErrSessionExpired
 	}
 
@@ -91,7 +94,9 @@ func (s *RedisStore) Get(sessionID string) (*Session, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.cache.Set(s.ctx, key, string(sessionData), remainingTTL)
+		if err := s.cache.Set(s.ctx, key, string(sessionData), remainingTTL); err != nil {
+			log.Printf("Warning: failed to update session last accessed time: %v", err)
+		}
 	}
 
 	return &session, nil
@@ -145,7 +150,9 @@ func (s *RedisStore) GetWithContext(ctx context.Context, sessionID string) (*Ses
 	}
 
 	if time.Now().After(session.ExpiresAt) {
-		s.cache.Del(ctx, key)
+		if err := s.cache.Del(ctx, key); err != nil {
+			log.Printf("Warning: failed to delete expired session from cache: %v", err)
+		}
 		return nil, ErrSessionExpired
 	}
 
@@ -156,7 +163,9 @@ func (s *RedisStore) GetWithContext(ctx context.Context, sessionID string) (*Ses
 		if err != nil {
 			return nil, err
 		}
-		s.cache.Set(ctx, key, string(sessionData), remainingTTL)
+		if err := s.cache.Set(ctx, key, string(sessionData), remainingTTL); err != nil {
+			log.Printf("Warning: failed to update session last accessed time: %v", err)
+		}
 	}
 
 	return &session, nil

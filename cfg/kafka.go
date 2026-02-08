@@ -43,10 +43,6 @@ const (
 
 	defaultPoolMaxConnections  = 10
 	defaultPoolIdleTimeoutSecs = 300 // 5 minutes
-
-	defaultIdempotencyEnabled      = true
-	defaultIdempotencyWindowSecs   = 300 // 5 minutes
-	defaultIdempotencyMaxCacheSize = 10000
 )
 
 type RetryConfig struct {

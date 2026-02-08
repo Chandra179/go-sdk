@@ -117,7 +117,9 @@ func (s *Service) RefreshToken(ctx context.Context, sessionID string) error {
 
 	newTokenSet, err := googleProvider.RefreshToken(ctx, sessionData.TokenSet.RefreshToken)
 	if err != nil {
-		s.sessionStore.Delete(sessionID)
+		if deleteErr := s.sessionStore.Delete(sessionID); deleteErr != nil {
+			return fmt.Errorf("failed to delete session after token refresh failure: %w", deleteErr)
+		}
 		return fmt.Errorf("failed to refresh token (session deleted): %w", ErrInvalidToken)
 	}
 

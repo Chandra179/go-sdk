@@ -94,7 +94,7 @@ func TestRedisCache_Get(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("successful get", func(t *testing.T) {
-		mr.Set("existing-key", "existing-value")
+		require.NoError(t, mr.Set("existing-key", "existing-value"))
 
 		val, err := cache.Get(ctx, "existing-key")
 		assert.NoError(t, err)
@@ -109,7 +109,7 @@ func TestRedisCache_Get(t *testing.T) {
 	})
 
 	t.Run("get expired key", func(t *testing.T) {
-		mr.Set("expired-key", "expired-value")
+		require.NoError(t, mr.Set("expired-key", "expired-value"))
 		mr.SetTTL("expired-key", 1*time.Second)
 		mr.FastForward(2 * time.Second)
 
@@ -127,7 +127,7 @@ func TestRedisCache_Del(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("delete existing key", func(t *testing.T) {
-		mr.Set("delete-key", "delete-value")
+		require.NoError(t, mr.Set("delete-key", "delete-value"))
 
 		err := cache.Del(ctx, "delete-key")
 		assert.NoError(t, err)
@@ -142,7 +142,7 @@ func TestRedisCache_Del(t *testing.T) {
 	})
 
 	t.Run("delete multiple times", func(t *testing.T) {
-		mr.Set("multi-delete-key", "value")
+		require.NoError(t, mr.Set("multi-delete-key", "value"))
 
 		err := cache.Del(ctx, "multi-delete-key")
 		assert.NoError(t, err)
@@ -170,7 +170,7 @@ func TestRedisCache_SetNX(t *testing.T) {
 	})
 
 	t.Run("setnx on existing key", func(t *testing.T) {
-		mr.Set("existing-setnx-key", "original-value")
+		require.NoError(t, mr.Set("existing-setnx-key", "original-value"))
 
 		ok, err := cache.SetNX(ctx, "existing-setnx-key", "new-value", time.Minute)
 		assert.NoError(t, err)
@@ -230,7 +230,7 @@ func TestRedisCache_ContextCancellation(t *testing.T) {
 	})
 
 	t.Run("get with cancelled context", func(t *testing.T) {
-		mr.Set("cancel-get-key", "value")
+		require.NoError(t, mr.Set("cancel-get-key", "value"))
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()

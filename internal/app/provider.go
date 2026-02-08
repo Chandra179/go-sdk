@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 
 	"gosdk/cfg"
@@ -87,7 +88,9 @@ func NewProvider(ctx context.Context, config *cfg.Config) (*Provider, error) {
 
 	infra, err := initBaseInfrastructure(config, appLogger, shutdownOTel, metricsHandler)
 	if err != nil {
-		shutdownOTel(ctx)
+		if shutdownErr := shutdownOTel(ctx); shutdownErr != nil {
+			log.Printf("Warning: failed to shutdown OTel during init failure: %v", shutdownErr)
+		}
 		return nil, fmt.Errorf("infrastructure initialization: %w", err)
 	}
 

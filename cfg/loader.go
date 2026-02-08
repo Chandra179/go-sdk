@@ -46,18 +46,6 @@ func (l *Loader) requireDuration(key string) time.Duration {
 	return duration
 }
 
-func (l *Loader) requireInt(key string) int {
-	value := l.requireEnv(key)
-	if value == "" {
-		return 0
-	}
-	intValue, err := strconv.Atoi(value)
-	if err != nil {
-		l.errs = append(l.errs, errors.New("invalid int for "+key+": "+value))
-	}
-	return intValue
-}
-
 func (l *Loader) getEnvIntOrDefault(key string, defaultValue int) int {
 	value, exists := os.LookupEnv(key)
 	if !exists || value == "" {
@@ -82,18 +70,6 @@ func (l *Loader) getEnvDurationOrDefault(key string, defaultValue time.Duration)
 		return defaultValue
 	}
 	return duration
-}
-
-func (l *Loader) requireInt64(key string) int64 {
-	value := l.requireEnv(key)
-	if value == "" {
-		return 0
-	}
-	intValue, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		l.errs = append(l.errs, errors.New("invalid int64 for "+key+": "+value))
-	}
-	return intValue
 }
 
 func (l *Loader) requireFloat64(key string) float64 {
@@ -137,15 +113,6 @@ func (l *Loader) getEnvBoolWithDefault(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if boolValue, err := strconv.ParseBool(value); err == nil {
 			return boolValue
-		}
-	}
-	return defaultValue
-}
-
-func (l *Loader) getEnvDurationWithDefault(key string, defaultValue time.Duration) time.Duration {
-	if value := os.Getenv(key); value != "" {
-		if duration, err := time.ParseDuration(value); err == nil {
-			return duration
 		}
 	}
 	return defaultValue

@@ -33,21 +33,21 @@ func TestGoogleCallbackHandler_MissingParams(t *testing.T) {
 
 	// Test missing code
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/callback?state=test", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/callback?state=test", nil)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "missing code")
 
 	// Test missing state
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/callback?code=test", nil)
+	req, _ = http.NewRequestWithContext(context.Background(), "GET", "/callback?code=test", nil)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "missing code") // Both are missing, so generic message
 
 	// Test missing both
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/callback", nil)
+	req, _ = http.NewRequestWithContext(context.Background(), "GET", "/callback", nil)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -70,7 +70,7 @@ func TestGoogleCallbackHandler_InvalidState(t *testing.T) {
 	router.GET("/callback", GoogleCallbackHandler(manager, nil))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/callback?code=test&state=invalid", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/callback?code=test&state=invalid", nil)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -116,7 +116,7 @@ func TestGoogleCallbackHandler_Success(t *testing.T) {
 	router.GET("/callback", GoogleCallbackHandler(manager, handlerConfig))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/callback?code=auth-code&state="+state, nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/callback?code=auth-code&state="+state, nil)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -157,7 +157,7 @@ func TestGoogleCallbackHandler_CallbackHandlerError(t *testing.T) {
 	router.GET("/callback", GoogleCallbackHandler(manager, nil))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/callback?code=auth-code&state="+state, nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/callback?code=auth-code&state="+state, nil)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -207,7 +207,7 @@ func TestGoogleCallbackHandler_Timeout(t *testing.T) {
 	router.GET("/callback", GoogleCallbackHandler(manager, handlerConfig))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/callback?code=auth-code&state="+state, nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/callback?code=auth-code&state="+state, nil)
 	router.ServeHTTP(w, req)
 
 	// Should get error due to timeout (either 500 or 401 depending on when context is cancelled)
@@ -251,7 +251,7 @@ func TestGoogleCallbackHandler_DefaultConfig(t *testing.T) {
 	router.GET("/callback", GoogleCallbackHandler(manager, nil))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/callback?code=auth-code&state="+state, nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/callback?code=auth-code&state="+state, nil)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

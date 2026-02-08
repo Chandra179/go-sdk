@@ -47,7 +47,3 @@ func (l *AppLogger) log(ctx context.Context, level slog.Level, msg string, field
 	}
 	l.handler.Log(ctx, level, msg, attrs...)
 }
-
-type FanOutHandler struct {
-	handlers []slog.Handler
-}

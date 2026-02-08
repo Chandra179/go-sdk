@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"log"
 	"net/http"
 
 	"gosdk/cfg"
@@ -61,7 +62,11 @@ func (h *Handler) LogoutHandler() gin.HandlerFunc {
 		sessionID, err := c.Cookie(SessionCookieName)
 
 		if err == nil {
-			h.service.DeleteSession(sessionID)
+			if err := h.service.DeleteSession(sessionID); err != nil {
+				// Log error but continue - user is being logged out anyway
+				// The session cookie will be cleared regardless
+				log.Printf("Warning: failed to delete session during logout: %v", err)
+			}
 		}
 
 		c.SetCookie(

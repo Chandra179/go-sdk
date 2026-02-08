@@ -169,7 +169,13 @@ func (m *Manager) HandleCallback(ctx context.Context, providerName, code, state 
 
 	// Delete state after retrieval (one-time use)
 	// Note: We delete even if callback fails to prevent replay attacks
-	defer m.stateStorage.DeleteState(state)
+	defer func() {
+		if err := m.stateStorage.DeleteState(state); err != nil {
+			// Log error but don't fail - state deletion failure doesn't invalidate successful auth
+			// This could happen if storage is temporarily unavailable
+			_ = err // Intentionally ignored - state cleanup is best effort
+		}
+	}()
 
 	userInfo, tokenSet, err := provider.HandleCallback(ctx, code, state, stateData.Nonce, stateData.CodeVerifier)
 	if err != nil {

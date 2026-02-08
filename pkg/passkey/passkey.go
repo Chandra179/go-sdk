@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -204,7 +205,9 @@ func (h *PasskeyHandler) FinishRegistration(c *gin.Context) {
 		return
 	}
 
-	h.storage.DeleteSession(sessionID)
+	if err := h.storage.DeleteSession(sessionID); err != nil {
+		log.Printf("Warning: failed to delete registration session: %v", err)
+	}
 	c.SetCookie("registration_session", "", -1, "/", "", false, true)
 	c.SetCookie("credential_nickname", "", -1, "/", "", false, true)
 
@@ -225,7 +228,11 @@ func (h *PasskeyHandler) BeginLogin(c *gin.Context) {
 	}
 
 	// Username is optional for discoverable credentials
-	c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// For discoverable credentials, username is optional, so we ignore binding errors
+		// The req.Username will remain empty which is valid for username-less login
+		req.Username = ""
+	}
 
 	var options *protocol.CredentialAssertion
 	var session *webauthn.SessionData
@@ -302,7 +309,9 @@ func (h *PasskeyHandler) FinishLogin(c *gin.Context) {
 		return
 	}
 
-	h.storage.DeleteSession(sessionID)
+	if err := h.storage.DeleteSession(sessionID); err != nil {
+		log.Printf("Warning: failed to delete login session: %v", err)
+	}
 	c.SetCookie("login_session", "", -1, "/", "", false, true)
 
 	c.JSON(200, gin.H{
@@ -441,7 +450,9 @@ func (h *PasskeyHandler) RegisterRoutes(r *gin.Engine) {
 
 func generateSessionID() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("failed to generate random session ID: %v", err))
+	}
 	return base64.URLEncoding.EncodeToString(b)
 }
 

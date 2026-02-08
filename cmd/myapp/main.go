@@ -22,19 +22,22 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Initialize the Provider (dependency injection container)
 	// This sets up all infrastructure and services
 	provider, err := app.NewProvider(ctx, config)
 	if err != nil {
+		cancel()
 		log.Fatalf("Failed to initialize provider: %v", err)
 	}
 
 	// Create the HTTP Server using the Provider
 	server, err := app.NewServer(provider)
 	if err != nil {
-		provider.Infra.Close(ctx) // Clean up infrastructure on failure
+		if closeErr := provider.Infra.Close(ctx); closeErr != nil {
+			log.Printf("Warning: failed to close infrastructure: %v", closeErr)
+		}
+		cancel()
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
@@ -61,7 +64,6 @@ func main() {
 	case <-ctx.Done():
 		// Graceful shutdown triggered by signal
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer shutdownCancel()
 
 		// Shutdown HTTP server first
 		if err := server.Shutdown(shutdownCtx); err != nil {
@@ -73,10 +75,13 @@ func main() {
 			log.Printf("Infrastructure shutdown error: %v", err)
 		}
 
+		shutdownCancel()
+		cancel() // Explicit cancel after graceful shutdown
 		log.Println("Shutdown complete")
 
 	case err := <-errCh:
 		// Server encountered an error
+		cancel() // Explicit cancel before Fatal
 		log.Fatalf("Server error: %v", err)
 	}
 }

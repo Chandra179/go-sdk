@@ -130,7 +130,11 @@ func TestNewProducer(t *testing.T) {
 	t.Run("creates producer with client", func(t *testing.T) {
 		ctx := context.Background()
 		container, brokers := setupKafkaContainer(t)
-		defer container.Terminate(ctx)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
 
 		logger := setupTestLogger()
 		client := createTestClient(t, logger, brokers, []string{"test-topic"}, "test-producer-group")
@@ -149,7 +153,11 @@ func TestProducer_SendMessage_Integration(t *testing.T) {
 
 		// Setup Kafka container
 		container, brokers := setupKafkaContainer(t)
-		defer container.Terminate(ctx)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
 
 		topic := "test-integration-topic"
 		logger := setupTestLogger()
@@ -240,7 +248,11 @@ func TestProducer_SendMessage_Integration(t *testing.T) {
 		defer cancel()
 
 		container, brokers := setupKafkaContainer(t)
-		defer container.Terminate(ctx)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
 
 		topic := "test-multi-messages"
 		logger := setupTestLogger()
@@ -319,14 +331,18 @@ func TestProducer_SendMessage_Integration(t *testing.T) {
 		defer cancel()
 
 		container, brokers := setupKafkaContainer(t)
-		defer container.Terminate(ctx)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
 
 		topic := "test-invalid-payload"
 		logger := setupTestLogger()
 
 		// Create topic
 		adminClient := createAdminClient(t, brokers)
-		createTopic(ctx, adminClient, topic)
+		require.NoError(t, createTopic(ctx, adminClient, topic))
 		adminClient.Close()
 
 		producerClient := createProducerClient(t, logger, brokers)
@@ -351,7 +367,11 @@ func TestStartConsumer_Integration(t *testing.T) {
 		defer cancel()
 
 		container, brokers := setupKafkaContainer(t)
-		defer container.Terminate(ctx)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
 
 		topic := "test-consumer"
 		logger := setupTestLogger()
@@ -384,7 +404,9 @@ func TestStartConsumer_Integration(t *testing.T) {
 		defer consumerCancel()
 
 		go func() {
-			StartConsumer(consumerCtx, consumerClient, handler)
+			if err := StartConsumer(consumerCtx, consumerClient, handler); err != nil && err != context.Canceled {
+				t.Logf("consumer error: %v", err)
+			}
 		}()
 
 		// Wait for message to be consumed
@@ -399,7 +421,11 @@ func TestStartConsumer_Integration(t *testing.T) {
 		defer cancel()
 
 		container, brokers := setupKafkaContainer(t)
-		defer container.Terminate(ctx)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
 
 		topic := "test-consumer-errors"
 		logger := setupTestLogger()
@@ -439,7 +465,11 @@ func TestStartConsumer_Integration(t *testing.T) {
 		defer cancel()
 
 		container, brokers := setupKafkaContainer(t)
-		defer container.Terminate(ctx)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
 
 		topic := "test-consumer-cancel"
 		logger := setupTestLogger()
@@ -465,7 +495,11 @@ func TestProducerConsumer_EndToEnd_Integration(t *testing.T) {
 		defer cancel()
 
 		container, brokers := setupKafkaContainer(t)
-		defer container.Terminate(ctx)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
 
 		topic := "test-e2e-workflow"
 		logger := setupTestLogger()
@@ -497,7 +531,9 @@ func TestProducerConsumer_EndToEnd_Integration(t *testing.T) {
 				return nil
 			}
 
-			StartConsumer(consumerCtx, consumerClient, handler)
+			if err := StartConsumer(consumerCtx, consumerClient, handler); err != nil && err != context.Canceled {
+				t.Logf("consumer error: %v", err)
+			}
 		}()
 
 		// Give consumer time to start
