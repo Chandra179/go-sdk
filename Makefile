@@ -1,5 +1,6 @@
 ins:
 	go mod tidy && go mod vendor
+	@$(MAKE) install-lint
 
 it:
 	go install github.com/swaggo/swag/cmd/swag@latest
@@ -40,3 +41,21 @@ docker-push:
 	docker build -t $(IMAGE):$(VERSION) .
 	docker tag $(IMAGE):$(VERSION) $(DOCKER_USER)/$(IMAGE):$(VERSION)
 	docker push $(DOCKER_USER)/$(IMAGE):$(VERSION)
+
+# Golangci-lint configuration
+GOLANGCI_VERSION := v2.1.5
+
+# Install golangci-lint using official binary (recommended method)
+.PHONY: install-lint
+install-lint:
+	@which golangci-lint >/dev/null 2>&1 || (curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_VERSION))
+
+# Run golangci-lint
+.PHONY: lint
+lint: install-lint
+	golangci-lint run
+
+# Run golangci-lint with auto-fix
+.PHONY: lint-fix
+lint-fix: install-lint
+	golangci-lint run --fix

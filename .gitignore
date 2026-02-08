@@ -37,3 +37,9 @@ vendor/
 api/proto/gen/
 .opencode
 secrets/
+
+# Golangci-lint cache
+.golangci-lint-cache/
+
+# Binary installations
+bin/golangci-lint
