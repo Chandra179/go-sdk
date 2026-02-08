@@ -265,11 +265,12 @@ func TestConsumer_ManualAck_Integration(t *testing.T) {
 
 			handler := func(ctx context.Context, msg interface{}, delivery amqp.Delivery) error {
 				handlerCalled <- true
-				// Intentionally don't ack - message should be redelivered
 				return fmt.Errorf("simulated processing error")
 			}
 
-			consumer.ConsumeWithDefaults(consumerCtx, queueName, handler)
+			if err := consumer.ConsumeWithDefaults(consumerCtx, queueName, handler); err != nil && err != context.Canceled {
+				t.Logf("consumer error: %v", err)
+			}
 		}()
 
 		// Wait for first handler call
