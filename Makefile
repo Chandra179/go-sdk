@@ -19,7 +19,7 @@ swag:
 	swag init -g cmd/myapp/main.go -o api
 
 kt:
-	go test ./pkg/kafka/... -v -timeout 300s
+	go test ./pkg/kafka/... -v -timeout 5m
 
 rt:
 	go test ./pkg/rabbitmq/... -v -timeout 300s

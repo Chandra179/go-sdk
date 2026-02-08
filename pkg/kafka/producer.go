@@ -21,9 +21,8 @@ type Message struct {
 
 // Producer wraps a Kafka client for producing messages.
 type Producer struct {
-	client  *kgo.Client
-	logger  *slog.Logger
-	metrics *Metrics
+	client *kgo.Client
+	logger *slog.Logger
 }
 
 // ProducerOption configures a Producer.
@@ -33,13 +32,6 @@ type ProducerOption func(*Producer)
 func WithProducerLogger(logger *slog.Logger) ProducerOption {
 	return func(p *Producer) {
 		p.logger = logger
-	}
-}
-
-// WithProducerMetrics sets the metrics collector for the producer.
-func WithProducerMetrics(metrics *Metrics) ProducerOption {
-	return func(p *Producer) {
-		p.metrics = metrics
 	}
 }
 
@@ -74,21 +66,14 @@ func (p *Producer) Produce(ctx context.Context, msg *Message) error {
 		Headers: headers,
 	}
 
-	start := time.Now()
 	callback := msg.Callback
 	if callback == nil {
 		callback = func(r *kgo.Record, err error) {
-			duration := time.Since(start)
 			if err != nil {
 				p.logger.Error("produce error",
 					"topic", r.Topic,
 					"error", err,
 				)
-				if p.metrics != nil {
-					p.metrics.RecordProduce(r.Topic, duration, false)
-				}
-			} else if p.metrics != nil {
-				p.metrics.RecordProduce(r.Topic, duration, true)
 			}
 		}
 	}
@@ -117,14 +102,9 @@ func (p *Producer) ProduceSync(ctx context.Context, msg *Message) error {
 		Headers: headers,
 	}
 
-	start := time.Now()
 	done := make(chan error, 1)
 
 	p.client.Produce(ctx, record, func(r *kgo.Record, err error) {
-		duration := time.Since(start)
-		if p.metrics != nil {
-			p.metrics.RecordProduce(r.Topic, duration, err == nil)
-		}
 		done <- err
 		close(done)
 	})
@@ -194,7 +174,6 @@ func (p *Producer) SendToDLQSync(ctx context.Context, originalTopic string, valu
 		{Key: "dlq_error", Value: []byte(dlqErr.Error())},
 	}
 
-	start := time.Now()
 	done := make(chan error, 1)
 
 	record := &kgo.Record{
@@ -205,10 +184,6 @@ func (p *Producer) SendToDLQSync(ctx context.Context, originalTopic string, valu
 	}
 
 	p.client.Produce(ctx, record, func(r *kgo.Record, err error) {
-		duration := time.Since(start)
-		if p.metrics != nil {
-			p.metrics.RecordProduce(r.Topic, duration, err == nil)
-		}
 		done <- err
 		close(done)
 	})

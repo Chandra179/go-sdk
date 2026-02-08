@@ -23,8 +23,7 @@ type ConsumerOptions struct {
 	MaxRetries   int
 	RetryBackoff time.Duration
 	Logger       *slog.Logger
-	Metrics      *Metrics
-	GroupID      string // For metrics labeling
+	GroupID      string
 }
 
 // StartConsumer starts consuming messages and processing them with the handler.
@@ -44,9 +43,6 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 		}
 		if o.Logger != nil {
 			options.Logger = o.Logger
-		}
-		if o.Metrics != nil {
-			options.Metrics = o.Metrics
 		}
 		if o.GroupID != "" {
 			options.GroupID = o.GroupID
@@ -74,9 +70,6 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 		if errs := fetches.Errors(); len(errs) > 0 {
 			for _, err := range errs {
 				logger.Error("fetch error", "error", err)
-				if options.Metrics != nil {
-					options.Metrics.RecordError("fetch", err.Topic)
-				}
 			}
 			continue
 		}
@@ -98,9 +91,6 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 						return
 					case <-time.After(backoff):
 					}
-					if options.Metrics != nil {
-						options.Metrics.RecordRetry(r.Topic)
-					}
 				}
 
 				if err := handler(r); err != nil {
@@ -120,20 +110,13 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 			}
 
 			duration := time.Since(start)
-			success := lastErr == nil
-
-			if options.Metrics != nil {
-				options.Metrics.RecordConsume(r.Topic, options.GroupID, duration, success)
-			}
+			_ = duration
 
 			if lastErr != nil {
 				if options.DLQProducer != nil {
 					dlqErr := options.DLQProducer.SendToDLQSync(ctx, r.Topic, r.Value, r.Key, lastErr)
 					if dlqErr != nil {
 						logger.Error("failed to send to DLQ", "error", dlqErr)
-						if options.Metrics != nil {
-							options.Metrics.RecordError("dlq_send", r.Topic)
-						}
 					} else {
 						logger.Error("message sent to DLQ",
 							"topic", r.Topic,
@@ -142,9 +125,6 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 							"dlq_topic", r.Topic+".dlq",
 							"error", lastErr,
 						)
-						if options.Metrics != nil {
-							options.Metrics.RecordDLQ(r.Topic, "handler_failed")
-						}
 					}
 					if options.OnDLQPublish != nil {
 						options.OnDLQPublish(r.Topic, lastErr)
