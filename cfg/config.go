@@ -9,6 +9,7 @@ type Config struct {
 	OAuth2          Oauth2Config
 	Observability   OtelConfig
 	Kafka           *KafkaConfig
+	RabbitMQ        *RabbitMQConfig
 	HTTPServer      HTTPServerConfig
 	ShutdownTimeout time.Duration
 }
@@ -23,6 +24,7 @@ func Load() (*Config, error) {
 		Postgres:        l.loadPostgres(),
 		Observability:   l.loadOtel(),
 		Kafka:           l.loadKafka(),
+		RabbitMQ:        l.loadRabbitMQ(),
 		HTTPServer:      l.loadHTTPServer(),
 		ShutdownTimeout: l.requireDuration("SHUTDOWN_TIMEOUT"),
 	}

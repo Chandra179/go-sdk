@@ -21,6 +21,9 @@ swag:
 kt:
 	go test ./pkg/kafka/... -v -timeout 300s
 
+rt:
+	go test ./pkg/rabbitmq/... -v -timeout 300s
+
 # Generate type-safe SQL code using sqlc
 .PHONY: sqlc
 sqlc:

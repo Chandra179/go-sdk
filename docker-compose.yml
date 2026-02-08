@@ -12,12 +12,14 @@ services:
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
       redis: { condition: service_started }
+      rabbitmq: { condition: service_started }
     env_file:
       - .env
     environment:
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:9092
+      RABBITMQ_HOST: rabbitmq
       OTEL_EXPORTER_OTLP_ENDPOINT: alloy:4317
     networks:
       - app-network
@@ -30,6 +32,18 @@ services:
       resources:
         limits:
           memory: 256M
+    networks:
+      - app-network
+
+  rabbitmq:
+    image: rabbitmq:4.2-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
     networks:
       - app-network
 
@@ -157,6 +171,7 @@ services:
 
 volumes:
   redis-data:
+  rabbitmq-data:
   postgres-data:
   prometheus-data:
   loki-data:

@@ -92,20 +92,37 @@ This project implements a comprehensive observability stack using OpenTelemetry 
 1. **Metrics**: Application → OTLP Receiver → Batch Processor → Prometheus Exporter → Prometheus (via remote_write)
 2. **Docker Logs**: Application (Zerolog JSON) → Docker stdout → Alloy Docker Log Scraper → Loki Process → Loki Write → Loki
 
+
+
+
 ## Database & SQL Code Generation (sqlc)
 
 This project uses **[sqlc](https://docs.sqlc.dev/)** for type-safe SQL code generation. sqlc generates Go code from SQL queries, providing compile-time safety and eliminating the need for ORMs.
+
+### Prerequisites
+
+Install sqlc CLI:
+```bash
+go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+```
+
+- **Queries**: `db/queries/` - SQL files with query annotations
+- **Schema**: `db/migrations/` - Migration files define database schema
+- **Output**: `internal/db/generated/` - Generated Go package
+
+### Generating Code
+
+After modifying SQL queries or schema, regenerate Go code:
+
+```bash
+sqlc generate
+```
+
+
+
 
 ## Kafka Architecture
 
 The project provides a robust Kafka client implementation using [franz-go](https://github.com/twmb/franz-go) with OpenTelemetry integration for observability.
 
 ![Kafka architecture](img/kafka_arch.png)
-
-### Features
-
-- **Producer** (`producer.go`): Synchronous message production with JSON serialization
-- **Consumer** (`consumer.go`): Manual offset management, graceful shutdown support, per-record error handling
-- **Client** (`client.go`): Configured with production-ready defaults (retries, compression, batching)
-- **Observability**: Built-in OpenTelemetry metrics and tracing via franz-go kotel plugin
-- **Error Handling**: Comprehensive error handling with slog logging throughout
