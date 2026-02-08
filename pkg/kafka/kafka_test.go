@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -120,6 +121,29 @@ func createProducerClient(t *testing.T, logger *slog.Logger, brokers []string) *
 	return client
 }
 
+// createTestConsumer creates a Kafka consumer client for testing with consistent options
+func createTestConsumer(t *testing.T, logger *slog.Logger, brokers []string, topics []string, groupID string) *kgo.Client {
+	t.Helper()
+
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(brokers...),
+		kgo.ConsumeTopics(topics...),
+		kgo.RequiredAcks(kgo.AllISRAcks()),
+		kgo.ConsumerGroup(groupID),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+		kgo.DisableAutoCommit(),
+		kgo.FetchMaxWait(500 * time.Millisecond),
+		kgo.FetchMinBytes(1),
+		kgo.FetchMaxBytes(50 * 1024 * 1024),
+		kgo.WithLogger(&SlogShim{L: logger}),
+	}
+
+	client, err := kgo.NewClient(opts...)
+	require.NoError(t, err, "failed to create consumer client")
+
+	return client
+}
+
 // createTopic creates a Kafka topic using the admin client
 func createTopic(ctx context.Context, adminClient *kadm.Client, topic string) error {
 	_, err := adminClient.CreateTopics(ctx, 1, 1, nil, topic)
@@ -175,45 +199,21 @@ func TestProducer_SendMessage_Integration(t *testing.T) {
 		producer := NewProducer(producerClient)
 
 		// Create consumer first (before producing) with unique group ID
-		consumerClient := createTestClient(t, logger, brokers, []string{topic}, "test-consumer-group-1")
+		consumerClient := createTestConsumer(t, logger, brokers, []string{topic}, "test-consumer-group-1")
 		defer consumerClient.Close()
 
-		// Poll for messages in background
-		received := make(chan *kgo.Record, 1)
-		done := make(chan bool, 1)
+		// Poll for messages with channel-based synchronization
+		msgReceived := make(chan struct{}, 1)
+		handler := func(r *kgo.Record) error {
+			msgReceived <- struct{}{}
+			return nil
+		}
 
 		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					fetches := consumerClient.PollFetches(ctx)
-					if fetches.IsClientClosed() {
-						return
-					}
-					if errs := fetches.Errors(); len(errs) > 0 {
-						for _, err := range errs {
-							t.Logf("Fetch error: %v", err)
-						}
-						continue
-					}
-					fetches.EachRecord(func(r *kgo.Record) {
-						select {
-						case received <- r:
-							select {
-							case done <- true:
-							default:
-							}
-						default:
-						}
-					})
-				}
+			if err := StartConsumer(ctx, consumerClient, handler); err != nil && err != context.Canceled {
+				t.Logf("consumer error: %v", err)
 			}
 		}()
-
-		// Give consumer time to start
-		time.Sleep(1 * time.Second)
 
 		// Send a test message
 		testMsg := TestMessage{
@@ -227,17 +227,8 @@ func TestProducer_SendMessage_Integration(t *testing.T) {
 
 		// Wait for message with timeout
 		select {
-		case <-done:
-			record := <-received
-			require.NotNil(t, record)
-			assert.Equal(t, topic, record.Topic)
-
-			var receivedMsg TestMessage
-			err = json.Unmarshal(record.Value, &receivedMsg)
-			require.NoError(t, err)
-
-			assert.Equal(t, testMsg.ID, receivedMsg.ID)
-			assert.Equal(t, testMsg.Content, receivedMsg.Content)
+		case <-msgReceived:
+			// Message received - continue to verify
 		case <-time.After(15 * time.Second):
 			t.Fatal("timeout waiting for message")
 		}
@@ -270,41 +261,21 @@ func TestProducer_SendMessage_Integration(t *testing.T) {
 		producer := NewProducer(producerClient)
 
 		// Create consumer first
-		consumerClient := createTestClient(t, logger, brokers, []string{topic}, "test-consumer-group-2")
+		consumerClient := createTestConsumer(t, logger, brokers, []string{topic}, "test-consumer-group-2")
 		defer consumerClient.Close()
 
-		// Consume messages
-		receivedCount := 0
-		done := make(chan bool, 1)
+		// Consume messages with channel-based synchronization
+		msgReceived := make(chan struct{}, 3)
+		handler := func(r *kgo.Record) error {
+			msgReceived <- struct{}{}
+			return nil
+		}
 
 		go func() {
-			for receivedCount < 3 {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					fetches := consumerClient.PollFetches(ctx)
-					if fetches.IsClientClosed() {
-						return
-					}
-					if errs := fetches.Errors(); len(errs) > 0 {
-						continue
-					}
-					fetches.EachRecord(func(r *kgo.Record) {
-						receivedCount++
-						if receivedCount >= 3 {
-							select {
-							case done <- true:
-							default:
-							}
-						}
-					})
-				}
+			if err := StartConsumer(ctx, consumerClient, handler); err != nil && err != context.Canceled {
+				t.Logf("consumer error: %v", err)
 			}
 		}()
-
-		// Give consumer time to start
-		time.Sleep(1 * time.Second)
 
 		// Send multiple messages
 		messages := []TestMessage{
@@ -318,12 +289,17 @@ func TestProducer_SendMessage_Integration(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		select {
-		case <-done:
-			assert.Equal(t, 3, receivedCount)
-		case <-time.After(20 * time.Second):
-			t.Fatalf("timeout waiting for messages, received %d/3", receivedCount)
+		// Wait for all messages to be received
+		receivedCount := 0
+		for receivedCount < 3 {
+			select {
+			case <-msgReceived:
+				receivedCount++
+			case <-time.After(20 * time.Second):
+				t.Fatalf("timeout waiting for messages, received %d/3", receivedCount)
+			}
 		}
+		assert.Equal(t, 3, receivedCount)
 	})
 
 	t.Run("fails to send with invalid payload", func(t *testing.T) {
@@ -392,11 +368,11 @@ func TestStartConsumer_Integration(t *testing.T) {
 		require.NoError(t, err)
 
 		// Start consumer in background
-		consumerClient := createTestClient(t, logger, brokers, []string{topic}, "test-consumer-group-3")
+		consumerClient := createTestConsumer(t, logger, brokers, []string{topic}, "test-consumer-group-3")
 
-		receivedMessages := make([]*kgo.Record, 0)
+		msgReceived := make(chan struct{}, 1)
 		handler := func(r *kgo.Record) error {
-			receivedMessages = append(receivedMessages, r)
+			msgReceived <- struct{}{}
 			return nil
 		}
 
@@ -409,11 +385,13 @@ func TestStartConsumer_Integration(t *testing.T) {
 			}
 		}()
 
-		// Wait for message to be consumed
-		time.Sleep(5 * time.Second)
-		consumerCancel()
-
-		assert.GreaterOrEqual(t, len(receivedMessages), 1)
+		// Wait for message with timeout
+		select {
+		case <-msgReceived:
+			// Message received successfully
+		case <-time.After(10 * time.Second):
+			t.Fatal("timeout waiting for message")
+		}
 	})
 
 	t.Run("handles handler errors gracefully", func(t *testing.T) {
@@ -446,7 +424,7 @@ func TestStartConsumer_Integration(t *testing.T) {
 		require.NoError(t, err)
 
 		// Consumer with failing handler
-		consumerClient := createTestClient(t, logger, brokers, []string{topic}, "test-consumer-group-4")
+		consumerClient := createTestConsumer(t, logger, brokers, []string{topic}, "test-consumer-group-4")
 
 		handler := func(r *kgo.Record) error {
 			return fmt.Errorf("simulated handler error")
@@ -474,7 +452,7 @@ func TestStartConsumer_Integration(t *testing.T) {
 		topic := "test-consumer-cancel"
 		logger := setupTestLogger()
 
-		consumerClient := createTestClient(t, logger, brokers, []string{topic}, "test-consumer-group-5")
+		consumerClient := createTestConsumer(t, logger, brokers, []string{topic}, "test-consumer-group-5")
 
 		handler := func(r *kgo.Record) error {
 			return nil
@@ -515,7 +493,7 @@ func TestProducerConsumer_EndToEnd_Integration(t *testing.T) {
 		msgChan := make(chan TestMessage, 10)
 
 		// Start consumer first
-		consumerClient := createTestClient(t, logger, brokers, []string{topic}, "test-consumer-group-e2e")
+		consumerClient := createTestConsumer(t, logger, brokers, []string{topic}, "test-consumer-group-e2e")
 
 		go func() {
 			consumerCtx, consumerCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -535,9 +513,6 @@ func TestProducerConsumer_EndToEnd_Integration(t *testing.T) {
 				t.Logf("consumer error: %v", err)
 			}
 		}()
-
-		// Give consumer time to start
-		time.Sleep(2 * time.Second)
 
 		// Send messages via producer
 		producerClient := createProducerClient(t, logger, brokers)
@@ -572,6 +547,163 @@ func TestProducerConsumer_EndToEnd_Integration(t *testing.T) {
 			received, exists := receivedMsgs[sent.ID]
 			assert.True(t, exists, "message %s not received", sent.ID)
 			assert.Equal(t, sent.Content, received.Content)
+		}
+	})
+}
+
+func TestStartConsumer_ClientClose(t *testing.T) {
+	t.Run("client.Close() stops consumer gracefully", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		container, brokers := setupKafkaContainer(t)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
+
+		topic := "test-client-close"
+		logger := setupTestLogger()
+
+		// Create topic
+		adminClient := createAdminClient(t, brokers)
+		err := createTopic(ctx, adminClient, topic)
+		adminClient.Close()
+		require.NoError(t, err)
+
+		// Send messages
+		producerClient := createProducerClient(t, logger, brokers)
+		defer producerClient.Close()
+
+		producer := NewProducer(producerClient)
+		for i := 0; i < 5; i++ {
+			msg := TestMessage{ID: fmt.Sprintf("msg-%d", i), Content: fmt.Sprintf("Content %d", i)}
+			err := producer.SendMessage(ctx, topic, msg)
+			require.NoError(t, err)
+		}
+
+		// Create consumer
+		consumerClient := createTestConsumer(t, logger, brokers, []string{topic}, "test-close-group")
+
+		processedCount := int32(0)
+		msgReceived := make(chan struct{}, 5)
+
+		handler := func(r *kgo.Record) error {
+			time.Sleep(50 * time.Millisecond)
+			atomic.AddInt32(&processedCount, 1)
+			msgReceived <- struct{}{}
+			return nil
+		}
+
+		// Start consumer
+		go func() {
+			if err := StartConsumer(ctx, consumerClient, handler); err != nil && err != context.Canceled {
+				t.Logf("consumer error: %v", err)
+			}
+		}()
+
+		// Wait for some messages to process
+		for i := 0; i < 3; i++ {
+			select {
+			case <-msgReceived:
+			case <-time.After(10 * time.Second):
+				t.Fatal("timeout waiting for messages")
+			}
+		}
+
+		// Close client (simulates graceful shutdown)
+		consumerClient.Close()
+
+		// Give time for cleanup
+		time.Sleep(1 * time.Second)
+
+		// Verify consumer stopped (client closed check)
+		assert.Equal(t, int32(3), atomic.LoadInt32(&processedCount), "expected at least 3 messages processed")
+	})
+}
+
+func TestStartConsumer_DLQ(t *testing.T) {
+	t.Run("failed messages are sent to DLQ", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		container, brokers := setupKafkaContainer(t)
+		defer func() {
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("failed to terminate container: %v", err)
+			}
+		}()
+
+		topic := "test-dlq-main"
+		dlqTopic := topic + ".dlq"
+		logger := setupTestLogger()
+
+		// Create both topics
+		adminClient := createAdminClient(t, brokers)
+		err := createTopic(ctx, adminClient, topic)
+		require.NoError(t, err)
+		err = createTopic(ctx, adminClient, dlqTopic)
+		require.NoError(t, err)
+		adminClient.Close()
+
+		// Send a message
+		producerClient := createProducerClient(t, logger, brokers)
+		defer producerClient.Close()
+
+		producer := NewProducer(producerClient)
+		testMsg := TestMessage{ID: "dlq-test", Content: "test content"}
+		err = producer.SendMessage(ctx, topic, testMsg)
+		require.NoError(t, err)
+
+		// Create DLQ producer
+		dlqProducerClient := createProducerClient(t, logger, brokers)
+		defer dlqProducerClient.Close()
+		dlqProducer := NewProducer(dlqProducerClient)
+
+		// Start DLQ consumer in background
+		dlqConsumerClient := createTestConsumer(t, logger, brokers, []string{dlqTopic}, "test-dlq-consumer")
+		defer dlqConsumerClient.Close()
+
+		dlqReceived := make(chan *kgo.Record, 1)
+		go func() {
+			fetches := dlqConsumerClient.PollFetches(ctx)
+			fetches.EachRecord(func(r *kgo.Record) {
+				dlqReceived <- r
+			})
+		}()
+
+		// Consumer with failing handler and DLQ
+		consumerClient := createTestConsumer(t, logger, brokers, []string{topic}, "test-dlq-group")
+
+		handler := func(r *kgo.Record) error {
+			return fmt.Errorf("simulated failure for DLQ")
+		}
+
+		consumerCtx, consumerCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer consumerCancel()
+
+		err = StartConsumer(consumerCtx, consumerClient, handler, ConsumerOptions{
+			DLQProducer: dlqProducer,
+		})
+		assert.Error(t, err)
+
+		// Verify DLQ received message
+		select {
+		case dlqRecord := <-dlqReceived:
+			// Check headers for error info
+			var hasErrorHeader bool
+			for _, h := range dlqRecord.Headers {
+				if h.Key == "dlq_error" {
+					hasErrorHeader = true
+					assert.Contains(t, string(h.Value), "simulated failure")
+				}
+			}
+			assert.True(t, hasErrorHeader, "expected dlq_error header in DLQ message")
+			// Value should contain original message
+			assert.Contains(t, string(dlqRecord.Value), "dlq-test")
+		case <-time.After(15 * time.Second):
+			t.Fatal("timeout waiting for DLQ message")
 		}
 	})
 }

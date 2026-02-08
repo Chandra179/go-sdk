@@ -11,12 +11,10 @@ import (
 // CommitMode defines when offsets are committed.
 type CommitMode int
 
-const (
-	// CommitBatch commits after processing an entire fetch batch.
-	CommitBatch CommitMode = iota
-	// CommitRecord commits after each record is processed.
-	CommitRecord
-)
+// CommitRecord commits offset after each record is successfully processed.
+// Ensures no message loss during shutdown - in-flight messages won't be committed
+// and will be redelivered on restart (at-least-once delivery semantics).
+const CommitRecord CommitMode = iota
 
 // ConsumerOptions configures consumer behavior.
 type ConsumerOptions struct {
@@ -26,7 +24,6 @@ type ConsumerOptions struct {
 	RetryBackoff time.Duration
 	Logger       *slog.Logger
 	Metrics      *Metrics
-	CommitMode   CommitMode
 	GroupID      string // For metrics labeling
 }
 
@@ -37,7 +34,6 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 		MaxRetries:   3,
 		RetryBackoff: 100 * time.Millisecond,
 		Logger:       slog.Default(),
-		CommitMode:   CommitBatch,
 	}
 	for _, o := range opts {
 		if o.MaxRetries > 0 {
@@ -51,9 +47,6 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 		}
 		if o.Metrics != nil {
 			options.Metrics = o.Metrics
-		}
-		if o.CommitMode != 0 {
-			options.CommitMode = o.CommitMode
 		}
 		if o.GroupID != "" {
 			options.GroupID = o.GroupID
@@ -166,22 +159,12 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 				}
 			}
 
-			// Per-record commit if configured
-			if options.CommitMode == CommitRecord {
-				if err := client.CommitRecords(ctx, r); err != nil {
-					logger.Error("per-record commit error", "error", err)
-					commitErr = err
-				}
-			}
-		})
-
-		// Batch commit after processing all records
-		if options.CommitMode == CommitBatch {
-			if err := client.CommitUncommittedOffsets(ctx); err != nil {
-				logger.Error("batch commit error", "error", err)
+			// Per-record commit ensures at-least-once delivery - messages are only committed after successful processing.
+			if err := client.CommitRecords(ctx, r); err != nil {
+				logger.Error("commit error", "error", err)
 				commitErr = err
 			}
-		}
+		})
 
 		_ = commitErr // Track but don't fail on commit errors
 	}
@@ -193,21 +176,4 @@ func StartConsumerWithDLQ(ctx context.Context, client *kgo.Client, handler func(
 		DLQProducer: dlqProducer,
 		MaxRetries:  3,
 	})
-}
-
-// GracefulShutdown waits for in-flight processing to complete.
-// Call this before closing the client.
-func GracefulShutdown(ctx context.Context, client *kgo.Client, timeout time.Duration) error {
-	shutdownCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Commit any remaining offsets
-	if err := client.CommitUncommittedOffsets(shutdownCtx); err != nil {
-		return err
-	}
-
-	// Leave the consumer group gracefully
-	client.LeaveGroup()
-
-	return nil
 }
