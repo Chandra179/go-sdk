@@ -18,11 +18,11 @@ func NewTopologyManager(client *Client) *TopologyManager {
 
 // DeclareQueue declares a queue with the given configuration
 func (tm *TopologyManager) DeclareQueue(config QueueConfig) (*amqp.Queue, error) {
-	ch, err := tm.client.GetConsumerChannel()
+	ch, err := tm.client.CreateConsumerChannel()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get channel: %w", err)
+		return nil, fmt.Errorf("failed to create channel: %w", err)
 	}
-	defer tm.client.ReturnConsumerChannel(ch)
+	defer ch.Close()
 
 	// Add quorum queue argument if needed
 	args := config.Args
@@ -57,11 +57,11 @@ func (tm *TopologyManager) DeclareQueue(config QueueConfig) (*amqp.Queue, error)
 
 // DeclareExchange declares an exchange with the given configuration
 func (tm *TopologyManager) DeclareExchange(config ExchangeConfig) error {
-	ch, err := tm.client.GetConsumerChannel()
+	ch, err := tm.client.CreateConsumerChannel()
 	if err != nil {
-		return fmt.Errorf("failed to get channel: %w", err)
+		return fmt.Errorf("failed to create channel: %w", err)
 	}
-	defer tm.client.ReturnConsumerChannel(ch)
+	defer ch.Close()
 
 	err = ch.ExchangeDeclare(
 		config.Name,
@@ -87,11 +87,11 @@ func (tm *TopologyManager) DeclareExchange(config ExchangeConfig) error {
 
 // BindQueue binds a queue to an exchange
 func (tm *TopologyManager) BindQueue(config BindingConfig) error {
-	ch, err := tm.client.GetConsumerChannel()
+	ch, err := tm.client.CreateConsumerChannel()
 	if err != nil {
-		return fmt.Errorf("failed to get channel: %w", err)
+		return fmt.Errorf("failed to create channel: %w", err)
 	}
-	defer tm.client.ReturnConsumerChannel(ch)
+	defer ch.Close()
 
 	err = ch.QueueBind(
 		config.QueueName,

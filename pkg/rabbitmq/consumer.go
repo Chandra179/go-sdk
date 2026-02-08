@@ -44,9 +44,9 @@ type ConsumeOptions struct {
 
 // StartConsumer starts consuming messages from a queue
 func (c *Consumer) StartConsumer(ctx context.Context, opts ConsumeOptions, handler MessageHandler) error {
-	ch, err := c.client.GetConsumerChannel()
+	ch, err := c.client.CreateConsumerChannel()
 	if err != nil {
-		return fmt.Errorf("failed to get consumer channel: %w", err)
+		return fmt.Errorf("failed to create consumer channel: %w", err)
 	}
 
 	// Set QoS (prefetch count) - critical for production
@@ -56,7 +56,7 @@ func (c *Consumer) StartConsumer(ctx context.Context, opts ConsumeOptions, handl
 	}
 
 	if err := ch.Qos(prefetchCount, 0, false); err != nil {
-		c.client.ReturnConsumerChannel(ch)
+		ch.Close()
 		return fmt.Errorf("failed to set QoS: %w", err)
 	}
 
@@ -76,7 +76,7 @@ func (c *Consumer) StartConsumer(ctx context.Context, opts ConsumeOptions, handl
 		opts.Args,
 	)
 	if err != nil {
-		c.client.ReturnConsumerChannel(ch)
+		ch.Close()
 		return fmt.Errorf("failed to start consuming: %w", err)
 	}
 

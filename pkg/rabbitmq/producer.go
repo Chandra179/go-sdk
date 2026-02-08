@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
@@ -55,7 +57,24 @@ func (p *Producer) PublishMessage(ctx context.Context, opts PublishOptions, payl
 	ch, err := p.client.GetPublisherChannel()
 	if err != nil {
 		span.RecordError(err)
-		return fmt.Errorf("failed to get publisher channel: %w", err)
+		// Check if channel is closed, trigger reconnection and retry once
+		if strings.Contains(err.Error(), "channel is closed") {
+			p.client.triggerReconnect()
+			// Wait for reconnection with timeout (up to 10 seconds)
+			for i := 0; i < 20; i++ {
+				time.Sleep(500 * time.Millisecond)
+				if p.client.IsHealthy() {
+					break
+				}
+			}
+			ch, err = p.client.GetPublisherChannel()
+			if err != nil {
+				span.RecordError(err)
+				return fmt.Errorf("failed to get publisher channel after retry: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to get publisher channel: %w", err)
+		}
 	}
 	defer p.client.ReturnPublisherChannel(ch)
 

@@ -31,12 +31,10 @@ type Client struct {
 
 	// Channel pools
 	publisherChannels chan *amqp.Channel
-	consumerChannels  chan *amqp.Channel
 
 	// State management
-	state       atomic.Int32
-	closeChan   chan struct{}
-	reconnectWg sync.WaitGroup
+	state     atomic.Int32
+	closeChan chan struct{}
 
 	// Topology cache for reconnection
 	topology *TopologyCache
@@ -74,7 +72,6 @@ func NewClient(config *Config, logger *slog.Logger) (*Client, error) {
 		config:            config,
 		logger:            logger,
 		publisherChannels: make(chan *amqp.Channel, config.ChannelPoolSize),
-		consumerChannels:  make(chan *amqp.Channel, config.ChannelPoolSize),
 		closeChan:         make(chan struct{}),
 		topology: &TopologyCache{
 			queues:    make([]QueueConfig, 0),
@@ -89,10 +86,6 @@ func NewClient(config *Config, logger *slog.Logger) (*Client, error) {
 	if err := client.connect(); err != nil {
 		return nil, fmt.Errorf("initial connection failed: %w", err)
 	}
-
-	// Start reconnection monitor
-	client.reconnectWg.Add(1)
-	go client.reconnectionMonitor()
 
 	return client, nil
 }
@@ -131,6 +124,8 @@ func (c *Client) connect() error {
 		"connection_name", c.config.ConnectionName,
 	)
 
+	c.setupNotifyHandlers()
+
 	return nil
 }
 
@@ -152,6 +147,55 @@ func (c *Client) dial(connType string) (*amqp.Connection, error) {
 	return conn, nil
 }
 
+// setupNotifyHandlers sets up NotifyClose handlers for both connections
+func (c *Client) setupNotifyHandlers() {
+	go c.handleConnectionClose(c.publisherConn, "publisher")
+	go c.handleConnectionClose(c.consumerConn, "consumer")
+}
+
+// handleConnectionClose handles individual connection close events
+func (c *Client) handleConnectionClose(conn *amqp.Connection, connType string) {
+	notifyClose := conn.NotifyClose(make(chan *amqp.Error, 1))
+
+	select {
+	case <-c.closeChan:
+		return
+	case err := <-notifyClose:
+		if err != nil {
+			c.logger.Warn("rabbitmq connection closed",
+				"connection_type", connType,
+				"error", err,
+			)
+			// Clear channel pools in a separate goroutine to avoid blocking
+			go func() {
+				c.clearChannelPools()
+				c.triggerReconnect()
+			}()
+		}
+	}
+}
+
+// triggerReconnect initiates reconnection if not already connecting/closing
+func (c *Client) triggerReconnect() {
+	for {
+		currentState := c.state.Load()
+		switch ConnectionState(currentState) {
+		case StateConnected:
+			if c.state.CompareAndSwap(int32(StateConnected), int32(StateConnecting)) {
+				go c.reconnectWithBackoff()
+				return
+			}
+		case StateConnecting, StateClosing:
+			return
+		case StateDisconnected:
+			if c.state.CompareAndSwap(int32(StateDisconnected), int32(StateConnecting)) {
+				go c.reconnectWithBackoff()
+				return
+			}
+		}
+	}
+}
+
 // initializeChannelPools creates initial channel pools
 func (c *Client) initializeChannelPools() error {
 	// Initialize publisher channels with confirms
@@ -170,66 +214,34 @@ func (c *Client) initializeChannelPools() error {
 		c.publisherChannels <- ch
 	}
 
-	// Initialize consumer channels
-	for i := 0; i < c.config.ChannelPoolSize; i++ {
-		ch, err := c.consumerConn.Channel()
-		if err != nil {
-			return fmt.Errorf("failed to create consumer channel: %w", err)
-		}
-		c.consumerChannels <- ch
-	}
-
 	return nil
 }
 
-// reconnectionMonitor watches for connection closures and reconnects
-func (c *Client) reconnectionMonitor() {
-	defer c.reconnectWg.Done()
-
-	for {
-		select {
-		case <-c.closeChan:
-			return
-		default:
-			if c.state.Load() == int32(StateClosing) {
-				return
-			}
-
-			// Check if connections are alive
-			if !c.isConnected() {
-				c.logger.Warn("rabbitmq connection lost, attempting reconnection")
-				if err := c.reconnectWithBackoff(); err != nil {
-					c.logger.Error("reconnection failed", "error", err)
-				}
-			}
-
-			time.Sleep(1 * time.Second)
-		}
-	}
-}
-
-// reconnectWithBackoff attempts reconnection with exponential backoff
-func (c *Client) reconnectWithBackoff() error {
+// reconnectWithBackoff handles reconnection with exponential backoff
+func (c *Client) reconnectWithBackoff() {
 	backoff := c.config.ReconnectInitialInterval
 	maxBackoff := c.config.ReconnectMaxInterval
 
 	for {
 		select {
 		case <-c.closeChan:
-			return fmt.Errorf("client is closing")
+			c.state.Store(int32(StateDisconnected))
+			return
 		case <-time.After(backoff):
-			// Check if client is closing before attempting reconnection
 			if c.state.Load() == int32(StateClosing) {
 				c.logger.Info("client closing, skipping reconnection")
-				return nil
+				c.state.Store(int32(StateDisconnected))
+				return
 			}
 
 			c.logger.Info("attempting reconnection", "backoff", backoff)
 
+			// Clear old channels before reconnecting
+			c.clearChannelPools()
+
 			if err := c.connect(); err != nil {
 				c.logger.Error("reconnection attempt failed", "error", err, "next_backoff", backoff*2)
 
-				// Exponential backoff
 				backoff *= 2
 				if backoff > maxBackoff {
 					backoff = maxBackoff
@@ -237,37 +249,29 @@ func (c *Client) reconnectWithBackoff() error {
 				continue
 			}
 
-			// Restore topology
 			if err := c.restoreTopology(); err != nil {
 				c.logger.Error("failed to restore topology", "error", err)
 			}
 
 			c.logger.Info("reconnection successful")
-			return nil
+			c.state.Store(int32(StateConnected))
+			return
 		}
 	}
 }
 
-// isConnected checks if both connections are alive
-func (c *Client) isConnected() bool {
-	// Check connections without holding mutex to avoid deadlock with Close()
-	// which holds mutex while waiting for reconnectionMonitor to exit
-	if c.publisherConn == nil || c.consumerConn == nil {
-		return false
-	}
-
-	return !c.publisherConn.IsClosed() && !c.consumerConn.IsClosed()
-}
-
 // GetPublisherChannel returns a channel from the publisher pool
 func (c *Client) GetPublisherChannel() (*amqp.Channel, error) {
-	if !c.isConnected() {
+	if c.state.Load() != int32(StateConnected) {
 		return nil, fmt.Errorf("client not connected")
 	}
 
 	select {
 	case ch := <-c.publisherChannels:
-		return ch, nil
+		if ch != nil && !ch.IsClosed() {
+			return ch, nil
+		}
+		return nil, fmt.Errorf("channel is closed, retry connection")
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout waiting for publisher channel")
 	}
@@ -287,40 +291,24 @@ func (c *Client) ReturnPublisherChannel(ch *amqp.Channel) {
 	}
 }
 
-// GetConsumerChannel returns a channel from the consumer pool
-func (c *Client) GetConsumerChannel() (*amqp.Channel, error) {
-	if !c.isConnected() {
+// CreateConsumerChannel creates a new consumer channel for the given connection
+func (c *Client) CreateConsumerChannel() (*amqp.Channel, error) {
+	if c.state.Load() != int32(StateConnected) {
 		return nil, fmt.Errorf("client not connected")
 	}
 
-	select {
-	case ch := <-c.consumerChannels:
-		return ch, nil
-	case <-time.After(5 * time.Second):
-		return nil, fmt.Errorf("timeout waiting for consumer channel")
+	ch, err := c.consumerConn.Channel()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create consumer channel: %w", err)
 	}
+
+	return ch, nil
 }
 
-// ReturnConsumerChannel returns a channel to the consumer pool
-func (c *Client) ReturnConsumerChannel(ch *amqp.Channel) {
-	if ch == nil || ch.IsClosed() {
-		return
-	}
-
-	select {
-	case c.consumerChannels <- ch:
-	default:
-		// Pool is full, close the channel
-		ch.Close()
-	}
-}
-
-// clearChannelPools drains and closes all channels in both pools
+// clearChannelPools drains and closes all channels in the publisher pool
 func (c *Client) clearChannelPools() {
 	// Drain publisher channels
 	drainChannelPool(c.publisherChannels)
-	// Drain consumer channels
-	drainChannelPool(c.consumerChannels)
 }
 
 // drainChannelPool drains and closes all channels in a pool
@@ -343,18 +331,10 @@ func (c *Client) Close() error {
 	c.state.Store(int32(StateClosing))
 	close(c.closeChan)
 
-	// Wait for reconnection monitor to stop
-	c.reconnectWg.Wait()
-
-	// Close channel pools
+	// Close channel pool
 	close(c.publisherChannels)
-	close(c.consumerChannels)
 
 	for ch := range c.publisherChannels {
-		ch.Close()
-	}
-
-	for ch := range c.consumerChannels {
 		ch.Close()
 	}
 
@@ -376,7 +356,7 @@ func (c *Client) Close() error {
 
 // IsHealthy returns true if the client is connected and healthy
 func (c *Client) IsHealthy() bool {
-	return c.state.Load() == int32(StateConnected) && c.isConnected()
+	return c.state.Load() == int32(StateConnected)
 }
 
 // GetState returns the current connection state

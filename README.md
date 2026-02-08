@@ -52,6 +52,8 @@ http://localhost:8080/swagger/index.html
 │   ├── db/                            # Database connectors, helpers
 │   ├── kafka/                         # Kafka client and helpers with OpenTelemetry metrics
 │   │   └── README.md                  # Kafka package documentation
+│   ├── rabbitmq/                      # RabbitMQ client with auto-reconnection, channel pooling, and DLQ support
+│   │   └── README.md                  # RabbitMQ package documentation
 │   ├── logger/                        # Zerolog wrapper & helpers
 │   ├── oauth2/                        # OAuth2 manager & token helpers
 │   └── passkey/                       # Passkey/WebAuthn utilities
@@ -126,3 +128,22 @@ sqlc generate
 The project provides a robust Kafka client implementation using [franz-go](https://github.com/twmb/franz-go) with OpenTelemetry integration for observability.
 
 ![Kafka architecture](img/kafka_arch.png)
+
+
+
+
+
+## RabbitMQ Architecture
+
+The project provides a robust RabbitMQ client implementation with automatic reconnection, channel pooling, and Dead Letter Exchange (DLX) support for reliable message processing.
+
+![RabbitMQ architecture](img/kafka_arch.png)
+
+
+### Data Flow
+
+1. **Publishing**: Application → Producer → Publisher Channel Pool → RabbitMQ Exchange
+2. **Consuming**: RabbitMQ Queue → Consumer Channel Pool → Message Handler → ACK/NACK
+3. **Error Handling**: Failed messages → Retry Queue (with TTL) → Main Queue → Parking Lot
+
+For detailed usage and configuration, see [pkg/rabbitmq/README.md](pkg/rabbitmq/README.md).
