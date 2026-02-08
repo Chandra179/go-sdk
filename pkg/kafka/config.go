@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"log/slog"
-	"math"
 	"time"
 )
 
@@ -29,13 +28,13 @@ type Config struct {
 	RequiredAcks   RequiredAcks  // Default: AllISRAcks
 	RecordRetries  int           // Default: 10
 	RequestRetries int           // Default: 3
-	BatchMaxBytes  int           // Default: 1MB
+	BatchMaxBytes  int32         // Default: 1MB
 	LingerDuration time.Duration // Default: 10ms
 
 	// Consumer tuning
 	FetchMaxWait      time.Duration // Default: 500ms
-	FetchMinBytes     int           // Default: 1
-	FetchMaxBytes     int           // Default: 50MB
+	FetchMinBytes     int32         // Default: 1
+	FetchMaxBytes     int32         // Default: 50MB
 	SessionTimeout    time.Duration // Default: 45s
 	HeartbeatInterval time.Duration // Default: 3s
 	RebalanceTimeout  time.Duration // Default: 60s
@@ -162,24 +161,12 @@ func (c *Config) Validate() error {
 		return errors.New("kafka: batch max bytes must be positive")
 	}
 
-	if c.BatchMaxBytes > math.MaxInt32 {
-		return errors.New("kafka: batch max bytes exceeds int32 max value")
-	}
-
 	if c.FetchMinBytes < 0 {
 		return errors.New("kafka: fetch min bytes must be non-negative")
 	}
 
-	if c.FetchMinBytes > math.MaxInt32 {
-		return errors.New("kafka: fetch min bytes exceeds int32 max value")
-	}
-
 	if c.FetchMaxBytes <= 0 {
 		return errors.New("kafka: fetch max bytes must be positive")
-	}
-
-	if c.FetchMaxBytes > math.MaxInt32 {
-		return errors.New("kafka: fetch max bytes exceeds int32 max value")
 	}
 
 	return nil

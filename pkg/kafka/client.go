@@ -43,7 +43,7 @@ func NewKafkaClientFromConfig(ctx context.Context, cfg *Config) (*kgo.Client, er
 			return time.Duration(tries) * 100 * time.Millisecond
 		}),
 		kgo.ProducerBatchCompression(kgo.SnappyCompression()),
-		kgo.ProducerBatchMaxBytes(int32(cfg.BatchMaxBytes)),
+		kgo.ProducerBatchMaxBytes(cfg.BatchMaxBytes),
 		kgo.ProducerLinger(cfg.LingerDuration),
 
 		// Connection settings
@@ -71,8 +71,8 @@ func NewKafkaClientFromConfig(ctx context.Context, cfg *Config) (*kgo.Client, er
 			kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()),
 			kgo.DisableAutoCommit(),
 			kgo.FetchMaxWait(cfg.FetchMaxWait),
-			kgo.FetchMinBytes(int32(cfg.FetchMinBytes)),
-			kgo.FetchMaxBytes(int32(cfg.FetchMaxBytes)),
+			kgo.FetchMinBytes(cfg.FetchMinBytes),
+			kgo.FetchMaxBytes(cfg.FetchMaxBytes),
 			kgo.SessionTimeout(cfg.SessionTimeout),
 			kgo.HeartbeatInterval(cfg.HeartbeatInterval),
 			kgo.RebalanceTimeout(cfg.RebalanceTimeout),
