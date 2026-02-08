@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"log/slog"
+	"math"
 	"time"
 )
 
@@ -25,10 +26,10 @@ type Config struct {
 	SASLPassword  string
 
 	// Producer tuning
-	RequiredAcks  RequiredAcks  // Default: AllISRAcks
-	RecordRetries int           // Default: 10
-	RequestRetries int          // Default: 3
-	BatchMaxBytes int           // Default: 1MB
+	RequiredAcks   RequiredAcks  // Default: AllISRAcks
+	RecordRetries  int           // Default: 10
+	RequestRetries int           // Default: 3
+	BatchMaxBytes  int           // Default: 1MB
 	LingerDuration time.Duration // Default: 10ms
 
 	// Consumer tuning
@@ -70,7 +71,7 @@ func DefaultConfig(brokers []string, groupID string) *Config {
 		RequiredAcks:   AllISRAcks,
 		RecordRetries:  10,
 		RequestRetries: 3,
-		BatchMaxBytes:  1_000_000,    // 1MB
+		BatchMaxBytes:  1_000_000, // 1MB
 		LingerDuration: 10 * time.Millisecond,
 
 		// Consumer defaults
@@ -144,9 +145,9 @@ func (c *Config) Validate() error {
 			return errors.New("kafka: SASL username and password are required when SASL is enabled")
 		}
 		validMechanisms := map[string]bool{
-			"PLAIN":          true,
-			"SCRAM-SHA-256":  true,
-			"SCRAM-SHA-512":  true,
+			"PLAIN":         true,
+			"SCRAM-SHA-256": true,
+			"SCRAM-SHA-512": true,
 		}
 		if !validMechanisms[c.SASLMechanism] {
 			return errors.New("kafka: unsupported SASL mechanism: " + c.SASLMechanism)
@@ -159,6 +160,26 @@ func (c *Config) Validate() error {
 
 	if c.BatchMaxBytes <= 0 {
 		return errors.New("kafka: batch max bytes must be positive")
+	}
+
+	if c.BatchMaxBytes > math.MaxInt32 {
+		return errors.New("kafka: batch max bytes exceeds int32 max value")
+	}
+
+	if c.FetchMinBytes < 0 {
+		return errors.New("kafka: fetch min bytes must be non-negative")
+	}
+
+	if c.FetchMinBytes > math.MaxInt32 {
+		return errors.New("kafka: fetch min bytes exceeds int32 max value")
+	}
+
+	if c.FetchMaxBytes <= 0 {
+		return errors.New("kafka: fetch max bytes must be positive")
+	}
+
+	if c.FetchMaxBytes > math.MaxInt32 {
+		return errors.New("kafka: fetch max bytes exceeds int32 max value")
 	}
 
 	return nil

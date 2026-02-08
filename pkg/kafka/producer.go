@@ -87,10 +87,8 @@ func (p *Producer) Produce(ctx context.Context, msg *Message) error {
 				if p.metrics != nil {
 					p.metrics.RecordProduce(r.Topic, duration, false)
 				}
-			} else {
-				if p.metrics != nil {
-					p.metrics.RecordProduce(r.Topic, duration, true)
-				}
+			} else if p.metrics != nil {
+				p.metrics.RecordProduce(r.Topic, duration, true)
 			}
 		}
 	}
