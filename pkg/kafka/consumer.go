@@ -114,16 +114,25 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 			// All retries exhausted - send message to DLQ or log error
 			if lastErr != nil {
 				if options.DLQProducer != nil {
-					options.DLQProducer.SendToDLQ(ctx, r.Topic, r.Value, r.Key, lastErr)
-					logger.Error("message sent to DLQ",
-						"topic", r.Topic,
-						"partition", r.Partition,
-						"offset", r.Offset,
-						"dlq_topic", r.Topic+".dlq",
-						"error", lastErr,
-					)
-					if options.OnDLQPublish != nil {
-						options.OnDLQPublish(r.Topic, lastErr)
+					if err := options.DLQProducer.SendToDLQ(ctx, r.Topic, r.Value, r.Key, lastErr); err != nil {
+						logger.Error("failed to send message to DLQ",
+							"error", err,
+							"topic", r.Topic,
+							"partition", r.Partition,
+							"offset", r.Offset,
+							"dlq_error", lastErr,
+						)
+					} else {
+						logger.Error("message sent to DLQ",
+							"topic", r.Topic,
+							"partition", r.Partition,
+							"offset", r.Offset,
+							"dlq_topic", r.Topic+".dlq",
+							"error", lastErr,
+						)
+						if options.OnDLQPublish != nil {
+							options.OnDLQPublish(r.Topic, lastErr)
+						}
 					}
 				} else {
 					logger.Error("handler failed, no DLQ configured",
