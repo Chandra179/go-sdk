@@ -135,9 +135,8 @@ The project provides a robust Kafka client implementation using [franz-go](https
 
 ## RabbitMQ Architecture
 
-The project provides a robust RabbitMQ client implementation with automatic reconnection, channel pooling, and Dead Letter Exchange (DLX) support for reliable message processing.
+The project provides a robust RabbitMQ client AMQP implementation with automatic reconnection, channel pooling, and Dead Letter Exchange (DLX) support for reliable message processing.
 
-![RabbitMQ architecture](img/kafka_arch.png)
 
 
 ### Data Flow
