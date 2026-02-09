@@ -83,62 +83,9 @@ func (p *Producer) Produce(ctx context.Context, msg *Message) error {
 	return nil
 }
 
-// ProduceSync sends a message and waits for acknowledgment.
-func (p *Producer) ProduceSync(ctx context.Context, msg *Message) error {
-	data, err := p.marshalPayload(msg.Payload)
-	if err != nil {
-		return err
-	}
-
-	headers := make([]kgo.RecordHeader, 0, len(msg.Headers))
-	for k, v := range msg.Headers {
-		headers = append(headers, kgo.RecordHeader{Key: k, Value: []byte(v)})
-	}
-
-	record := &kgo.Record{
-		Topic:   msg.Topic,
-		Key:     []byte(msg.Key),
-		Value:   data,
-		Headers: headers,
-	}
-
-	done := make(chan error, 1)
-
-	p.client.Produce(ctx, record, func(r *kgo.Record, err error) {
-		done <- err
-		close(done)
-	})
-
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 // SendMessage is a convenience method to send a message with just topic and payload.
 func (p *Producer) SendMessage(ctx context.Context, topic string, payload any) error {
 	return p.Produce(ctx, &Message{Topic: topic, Payload: payload})
-}
-
-// SendMessageSync is a convenience method to send a message synchronously.
-func (p *Producer) SendMessageSync(ctx context.Context, topic string, payload any) error {
-	return p.ProduceSync(ctx, &Message{Topic: topic, Payload: payload})
-}
-
-// Flush waits for all buffered records to be sent.
-func (p *Producer) Flush(ctx context.Context) error {
-	return p.client.Flush(ctx)
-}
-
-// Close flushes pending messages and indicates the producer should not be used.
-func (p *Producer) Close(ctx context.Context) error {
-	if err := p.client.Flush(ctx); err != nil {
-		p.logger.Error("error flushing producer", "error", err)
-		return err
-	}
-	return nil
 }
 
 // SendToDLQ sends a message to the dead letter queue asynchronously.
@@ -162,38 +109,6 @@ func (p *Producer) SendToDLQ(ctx context.Context, originalTopic string, value []
 		Key:     keyStr,
 		Headers: headers,
 	})
-}
-
-// SendToDLQSync sends a message to the dead letter queue and waits for acknowledgment.
-func (p *Producer) SendToDLQSync(ctx context.Context, originalTopic string, value []byte, key []byte, dlqErr error) error {
-	dlqTopic := originalTopic + ".dlq"
-
-	headers := []kgo.RecordHeader{
-		{Key: "origin_topic", Value: []byte(originalTopic)},
-		{Key: "dlq_timestamp", Value: []byte(time.Now().Format(time.RFC3339))},
-		{Key: "dlq_error", Value: []byte(dlqErr.Error())},
-	}
-
-	done := make(chan error, 1)
-
-	record := &kgo.Record{
-		Topic:   dlqTopic,
-		Key:     key,
-		Value:   value,
-		Headers: headers,
-	}
-
-	p.client.Produce(ctx, record, func(r *kgo.Record, err error) {
-		done <- err
-		close(done)
-	})
-
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 func (p *Producer) marshalPayload(payload any) ([]byte, error) {

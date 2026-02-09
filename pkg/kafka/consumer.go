@@ -59,9 +59,6 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 		}
 
 		fetches := client.PollFetches(ctx)
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
 
 		if fetches.IsClientClosed() {
 			return nil
@@ -74,7 +71,6 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 			continue
 		}
 
-		var commitErr error
 		fetches.EachRecord(func(r *kgo.Record) {
 			if ctx.Err() != nil {
 				return
@@ -83,6 +79,9 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 			start := time.Now()
 			var lastErr error
 
+			// Retry handler with exponential backoff
+			// Attempts: 0 (first try), 1 (first retry), 2 (second retry), etc.
+			// If all attempts fail, message is sent to DLQ
 			for attempt := 0; attempt <= options.MaxRetries; attempt++ {
 				if attempt > 0 {
 					backoff := time.Duration(attempt) * options.RetryBackoff
@@ -112,20 +111,17 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 			duration := time.Since(start)
 			_ = duration
 
+			// All retries exhausted - send message to DLQ or log error
 			if lastErr != nil {
 				if options.DLQProducer != nil {
-					dlqErr := options.DLQProducer.SendToDLQSync(ctx, r.Topic, r.Value, r.Key, lastErr)
-					if dlqErr != nil {
-						logger.Error("failed to send to DLQ", "error", dlqErr)
-					} else {
-						logger.Error("message sent to DLQ",
-							"topic", r.Topic,
-							"partition", r.Partition,
-							"offset", r.Offset,
-							"dlq_topic", r.Topic+".dlq",
-							"error", lastErr,
-						)
-					}
+					options.DLQProducer.SendToDLQ(ctx, r.Topic, r.Value, r.Key, lastErr)
+					logger.Error("message sent to DLQ",
+						"topic", r.Topic,
+						"partition", r.Partition,
+						"offset", r.Offset,
+						"dlq_topic", r.Topic+".dlq",
+						"error", lastErr,
+					)
 					if options.OnDLQPublish != nil {
 						options.OnDLQPublish(r.Topic, lastErr)
 					}
@@ -142,11 +138,9 @@ func StartConsumer(ctx context.Context, client *kgo.Client, handler func(*kgo.Re
 			// Per-record commit ensures at-least-once delivery - messages are only committed after successful processing.
 			if err := client.CommitRecords(ctx, r); err != nil {
 				logger.Error("commit error", "error", err)
-				commitErr = err
 			}
 		})
 
-		_ = commitErr // Track but don't fail on commit errors
 	}
 }
 

@@ -83,48 +83,6 @@ func (h *HealthChecker) CheckWithMetadata(ctx context.Context) (*ClusterHealth, 
 	return health, nil
 }
 
-// CheckTopics verifies that specific topics exist and are accessible.
-func (h *HealthChecker) CheckTopics(ctx context.Context, topics ...string) error {
-	if len(topics) == 0 {
-		return nil
-	}
-
-	adminClient := kadm.NewClient(h.client)
-
-	topicDetails, err := adminClient.ListTopics(ctx, topics...)
-	if err != nil {
-		return fmt.Errorf("failed to list topics: %w", err)
-	}
-
-	for _, topic := range topics {
-		td, exists := topicDetails[topic]
-		if !exists {
-			return fmt.Errorf("topic %q does not exist", topic)
-		}
-		if td.Err != nil {
-			return fmt.Errorf("topic %q error: %w", topic, td.Err)
-		}
-	}
-
-	return nil
-}
-
-// ReadinessCheck is a convenience function for Kubernetes readiness probes.
-// It checks both cluster connectivity and topic availability.
-func (h *HealthChecker) ReadinessCheck(ctx context.Context, requiredTopics ...string) error {
-	if err := h.Check(ctx); err != nil {
-		return fmt.Errorf("cluster not ready: %w", err)
-	}
-
-	if len(requiredTopics) > 0 {
-		if err := h.CheckTopics(ctx, requiredTopics...); err != nil {
-			return fmt.Errorf("topics not ready: %w", err)
-		}
-	}
-
-	return nil
-}
-
 // LivenessCheck is a convenience function for Kubernetes liveness probes.
 // It performs a lightweight check to verify the client is still connected.
 func (h *HealthChecker) LivenessCheck(ctx context.Context) error {

@@ -87,7 +87,7 @@ func TestProducerBasic(t *testing.T) {
 		Created: time.Now(),
 	}
 
-	err = producer.SendMessageSync(ctx, topic, testMsg)
+	err = producer.SendMessage(ctx, topic, testMsg)
 	assert.NoError(t, err, "failed to produce message")
 
 	msg := &Message{
@@ -101,11 +101,8 @@ func TestProducerBasic(t *testing.T) {
 		},
 	}
 
-	err = producer.ProduceSync(ctx, msg)
+	err = producer.Produce(ctx, msg)
 	assert.NoError(t, err, "failed to produce message with headers")
-
-	err = producer.Flush(ctx)
-	assert.NoError(t, err, "failed to flush producer")
 }
 
 // TestProducerAsync tests asynchronous message production.
@@ -224,7 +221,7 @@ func TestConsumerBasic(t *testing.T) {
 
 	// THEN produce messages
 	for _, msg := range testMessages {
-		err := producer.SendMessageSync(ctx, topic, msg)
+		err := producer.SendMessage(ctx, topic, msg)
 		require.NoError(t, err)
 	}
 
@@ -306,7 +303,7 @@ func TestProducerConsumerFlow(t *testing.T) {
 			Created: time.Now(),
 		}
 
-		err := producer.SendMessageSync(ctx, topic, msg)
+		err := producer.SendMessage(ctx, topic, msg)
 		require.NoError(t, err)
 		t.Logf("Produced message %d", i)
 	}
@@ -397,7 +394,7 @@ func TestConsumerWithDLQ(t *testing.T) {
 	}
 
 	for _, msg := range messages {
-		err := producer.SendMessageSync(ctx, topic, msg)
+		err := producer.SendMessage(ctx, topic, msg)
 		require.NoError(t, err)
 	}
 
