@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 
 	gen "gosdk/internal/db/gen"
-	generated "gosdk/internal/db/gen"
 	"gosdk/pkg/db"
 )
 
@@ -46,11 +45,11 @@ func (r *UserRepository) GetByProviderAndSubject(ctx context.Context, provider, 
 }
 
 // Create inserts a new user into the database
-func (r *UserRepository) Create(ctx context.Context, provider, subjectID, email, fullName string) (*generated.User, error) {
+func (r *UserRepository) Create(ctx context.Context, provider, subjectID, email, fullName string) (*gen.User, error) {
 	userID := uuid.New()
 	now := time.Now()
 
-	user, err := r.queries.CreateUser(ctx, generated.CreateUserParams{
+	user, err := r.queries.CreateUser(ctx, gen.CreateUserParams{
 		ID:        userID,
 		Provider:  provider,
 		SubjectID: subjectID,
@@ -75,11 +74,11 @@ func (r *UserRepository) Create(ctx context.Context, provider, subjectID, email,
 }
 
 // GetOrCreate retrieves an existing user or creates a new one
-func (r *UserRepository) GetOrCreate(ctx context.Context, provider, subjectID, email, fullName string) (*generated.User, error) {
+func (r *UserRepository) GetOrCreate(ctx context.Context, provider, subjectID, email, fullName string) (*gen.User, error) {
 	userID := uuid.New()
 	now := time.Now()
 
-	user, err := r.queries.GetOrCreateUser(ctx, generated.GetOrCreateUserParams{
+	user, err := r.queries.GetOrCreateUser(ctx, gen.GetOrCreateUserParams{
 		ID:        userID,
 		Provider:  provider,
 		SubjectID: subjectID,
@@ -99,7 +98,7 @@ func (r *UserRepository) GetOrCreate(ctx context.Context, provider, subjectID, e
 }
 
 // GetByID retrieves a user by their unique ID
-func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*generated.User, error) {
+func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*gen.User, error) {
 	user, err := r.queries.GetUserByID(ctx, id)
 
 	if err == sql.ErrNoRows {
@@ -116,8 +115,8 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*generated.
 }
 
 // Update updates an existing user's information
-func (r *UserRepository) Update(ctx context.Context, id uuid.UUID, email, fullName string) (*generated.User, error) {
-	user, err := r.queries.UpdateUser(ctx, generated.UpdateUserParams{
+func (r *UserRepository) Update(ctx context.Context, id uuid.UUID, email, fullName string) (*gen.User, error) {
+	user, err := r.queries.UpdateUser(ctx, gen.UpdateUserParams{
 		ID:        id,
 		Email:     email,
 		FullName:  sql.NullString{String: fullName, Valid: fullName != ""},
