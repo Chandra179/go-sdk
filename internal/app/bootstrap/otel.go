@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"gosdk/cfg"
+	"gosdk/internal/cfg"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

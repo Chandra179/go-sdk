@@ -8,25 +8,26 @@ import (
 
 	"github.com/google/uuid"
 
-	"gosdk/internal/db/generated"
+	gen "gosdk/internal/db/gen"
+	generated "gosdk/internal/db/gen"
 	"gosdk/pkg/db"
 )
 
 // UserRepository handles database operations for users using type-safe queries
 type UserRepository struct {
-	queries *generated.Queries
+	queries *gen.Queries
 }
 
 // NewUserRepository creates a new UserRepository with generated type-safe queries
 func NewUserRepository(database db.SQLExecutor) *UserRepository {
 	return &UserRepository{
-		queries: generated.New(database),
+		queries: gen.New(database),
 	}
 }
 
 // GetByProviderAndSubject retrieves a user by OAuth provider and subject ID
-func (r *UserRepository) GetByProviderAndSubject(ctx context.Context, provider, subjectID string) (*generated.User, error) {
-	user, err := r.queries.GetUserByProviderAndSubject(ctx, generated.GetUserByProviderAndSubjectParams{
+func (r *UserRepository) GetByProviderAndSubject(ctx context.Context, provider, subjectID string) (*gen.User, error) {
+	user, err := r.queries.GetUserByProviderAndSubject(ctx, gen.GetUserByProviderAndSubjectParams{
 		Provider:  provider,
 		SubjectID: subjectID,
 	})

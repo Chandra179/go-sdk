@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"gosdk/cfg"
+	"gosdk/internal/cfg"
 	"gosdk/pkg/oauth2"
 )
 

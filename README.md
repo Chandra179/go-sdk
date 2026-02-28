@@ -10,14 +10,14 @@ http://localhost:8080/swagger/index.html
 ## Project Structure
 ```
 ├── cmd/                               # Runnable applications
-│   ├── myapp/                         # Main application
-│   │   └── main.go                    # Entry point
-│   └── examples/                      # Example applications (empty placeholder)
+│   └── myapp/                         # Main application
+│       └── main.go                    # Entry point
 │
 ├── internal/                          # Internal services (not importable externally)
 │   ├── app/                           # Application initialization
 │   │   ├── bootstrap/                 # Component initialization (DB, cache, OAuth2, Kafka, OTEL)
 │   │   │   ├── cache.go               # Redis cache initialization
+│   │   │   ├── database.go            # Database connection setup
 │   │   │   ├── migrations.go          # Database migrations
 │   │   │   ├── oauth2.go              # OAuth2 provider setup
 │   │   │   └── otel.go                # OpenTelemetry setup
@@ -34,47 +34,54 @@ http://localhost:8080/swagger/index.html
 │   │   ├── server.go                  # Server setup, lifecycle management
 │   │   ├── provider.go                # Dependency injection provider
 │   │   └── README.md                  # App architecture documentation
-│   ├── db/                            # Database layer
-│   │   └── generated/                 # sqlc generated code
-│   └── service/                       # Domain services
-│       ├── auth/                      # Authentication service
-│       │   ├── handler.go             # HTTP handlers (Gin)
-│       │   ├── repository.go          # Data access layer
-│       │   ├── service.go             # Business logic
-│       │   └── types.go               # DTOs and models
-│       └── session/                   # Session service
-│           ├── client.go              # Session client interface
-│           ├── redis_session.go       # Redis session implementation
-│           └── redis_session_test.go  # Session tests
-│
-├── pkg/                               # Reusable library packages
-│   ├── cache/                         # Cache interfaces, Redis helpers
-│   ├── db/                            # Database connectors, helpers
-│   ├── kafka/                         # Kafka client and helpers with OpenTelemetry metrics
-│   │   └── README.md                  # Kafka package documentation
-│   ├── rabbitmq/                      # RabbitMQ client with auto-reconnection, channel pooling, and DLQ support
-│   │   └── README.md                  # RabbitMQ package documentation
-│   ├── logger/                        # Zerolog wrapper & helpers
-│   ├── oauth2/                        # OAuth2 manager & token helpers
-│   └── passkey/                       # Passkey/WebAuthn utilities
-│
-├── db/                                # Database-related files
-│   ├── migrations/                    # SQL migration files
-│   └── queries/                       # SQL query files for sqlc
+│   ├── db/                           # Database layer
+│   │   ├── gen/                      # sqlc generated code
+│   │   │   ├── db.go                 # Database interface
+│   │   │   ├── models.go             # Data models
+│   │   │   ├── querier.go            # Query interface
+│   │   │   └── users.sql.go          # Generated user queries
+│   │   ├── migrations/               # SQL migration files
+│   │   │   ├── 000001_users_and_oidc.up.sql
+│   │   │   └── 000001_users_and_oidc.down.sql
+│   │   ├── queries/                  # SQL query files for sqlc
+│   │   │   └── users.sql
+│   │   └── README.md                 # Database documentation
+│   ├── service/                     # Domain services
+│   │   ├── auth/                     # Authentication service
+│   │   │   ├── handler.go            # HTTP handlers (Gin)
+│   │   │   ├── repository.go         # Data access layer
+│   │   │   ├── service.go            # Business logic
+│   │   │   └── types.go              # DTOs and models
+│   │   └── session/                  # Session service
+│   │       ├── client.go             # Session client interface
+│   │       ├── redis_session.go      # Redis session implementation
+│   │       └── redis_session_test.go # Session tests
+│   └── cfg/                          # Centralized config loading
+│       ├── config.go                 # Main config loader
+│       ├── http.go                   # HTTP server config
+│       ├── kafka.go                  # Kafka config
+│       ├── kafka.yaml                # Kafka config YAML
+│       ├── loader.go                 # Config file loading
+│       ├── oauth.go                  # OAuth2 config
+│       ├── otel.go                   # OpenTelemetry config
+│       ├── postgres.go               # PostgreSQL config
+│       ├── rabbitmq.go               # RabbitMQ config
+│       ├── rabbitmq.yaml             # RabbitMQ config YAML
+│       └── redis.go                  # Redis config
 │
 ├── api/                               # API specifications
 │   ├── docs.go                        # Swagger documentation
 │   ├── swagger.yaml                   # OpenAPI spec
 │   └── swagger.json                   # OpenAPI spec (JSON)
 │
-├── cfg/                               # Centralized config loading
-│   └── config.go
-│
 ├── otel/                              # Monitoring & tracing configs
 │   ├── config.alloy                   # Alloy OTel config
 │   ├── loki.yaml                      # Loki logging config
 │   ├── prometheus.yml                 # Prometheus metrics config
-│   └── grafana-datasources.yaml       # Grafana datasources
+│   └── grafana-datasources.yaml      # Grafana datasources
+│
+├── scripts/                           # Utility scripts
+│   └── install.sh                     # Installation script
 │
 ├── img/                               # Documentation images
 ├── Makefile                           # Build commands
@@ -82,7 +89,8 @@ http://localhost:8080/swagger/index.html
 ├── docker-compose.yml                 # Local services
 ├── Dockerfile                         # Container image
 ├── api.http                          # API testing file
-└── .env.example                       # Environment variables template
+├── .env.example                       # Environment variables template
+└── .golangci.yml                      # GolangCI Linter config
 ```
 
 ## OpenTelemetry
@@ -100,17 +108,6 @@ This project implements a comprehensive observability stack using OpenTelemetry 
 ## Database & SQL Code Generation (sqlc)
 
 This project uses **[sqlc](https://docs.sqlc.dev/)** for type-safe SQL code generation. sqlc generates Go code from SQL queries, providing compile-time safety and eliminating the need for ORMs.
-
-### Prerequisites
-
-Install sqlc CLI:
-```bash
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
-```
-
-- **Queries**: `db/queries/` - SQL files with query annotations
-- **Schema**: `db/migrations/` - Migration files define database schema
-- **Output**: `internal/db/generated/` - Generated Go package
 
 ### Generating Code
 
@@ -136,6 +133,9 @@ The project provides a robust Kafka client implementation using [franz-go](https
 ## RabbitMQ Architecture
 
 The project provides a robust RabbitMQ client AMQP implementation with automatic reconnection, channel pooling, and Dead Letter Exchange (DLX) support for reliable message processing.
+
+
+
 
 
 

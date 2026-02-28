@@ -1,6 +1,8 @@
 package cfg
 
-import "time"
+import (
+	"time"
+)
 
 type Config struct {
 	AppEnv          string

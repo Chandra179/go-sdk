@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"gosdk/cfg"
+	"gosdk/internal/cfg"
 
 	"github.com/gin-gonic/gin"
 )

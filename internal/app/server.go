@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"gosdk/cfg"
 	"gosdk/internal/app/health"
 	"gosdk/internal/app/middleware"
 	"gosdk/internal/app/routes"
+	"gosdk/internal/cfg"
 	"gosdk/internal/service/auth"
 	"gosdk/pkg/logger"
 	"gosdk/pkg/oauth2"

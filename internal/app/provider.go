@@ -6,8 +6,8 @@ import (
 	"log"
 	"net/http"
 
-	"gosdk/cfg"
 	"gosdk/internal/app/bootstrap"
+	"gosdk/internal/cfg"
 	"gosdk/internal/service/auth"
 	"gosdk/internal/service/session"
 	"gosdk/pkg/cache"

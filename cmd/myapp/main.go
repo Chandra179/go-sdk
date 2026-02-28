@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	"gosdk/cfg"
 	"gosdk/internal/app"
+	"gosdk/internal/cfg"
 
 	// Import swagger docs - the init() function registers the swagger spec
 	_ "gosdk/api"

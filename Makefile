@@ -1,39 +1,64 @@
-ins:
+.PHONY: vendor
+vendor:
 	go mod tidy && go mod vendor
-	@$(MAKE) install-lint
 
-it:
-	go install github.com/swaggo/swag/cmd/swag@latest
-	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+.PHONY: ins
+ins:
+	@chmod +x scripts/install.sh && ./scripts/install.sh
 
+.PHONY: up
 up:
 	docker compose up -d
 
-ba:
+.PHONY: bu
+bu:
 	docker compose up --build -d
 
-bg:
+.PHONY: bgo
+bgo:
 	docker compose up gosdk-app --build -d
 
+.PHONY: swag
 swag:
 	swag init -g cmd/myapp/main.go -o api
 
+.PHONY: kt
 kt:
 	go test ./pkg/kafka/... -v -timeout 5m
 
+.PHONY: rt
 rt:
 	go test ./pkg/rabbitmq/... -v -timeout 300s
 
-# Generate type-safe SQL code using sqlc
 .PHONY: sqlc
 sqlc:
 	sqlc generate
 
-# Verify sqlc generated code is up to date
-.PHONY: sqlc-verify
-sqlc-verify:
-	sqlc generate
-	@git diff --exit-code internal/storage/db/generated/ || (echo "Generated code is out of date. Run 'make sqlc' to update." && exit 1)
+
+# Database migration settings
+POSTGRES_HOST ?= localhost
+POSTGRES_PORT ?= 5432
+POSTGRES_USER ?= myuser
+POSTGRES_PASSWORD ?= mypassword
+POSTGRES_DB ?= mydb
+POSTGRES_SSLMODE ?= disable
+MIGRATION_PATH ?= db/migrations
+DATABASE_URL := postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=$(POSTGRES_SSLMODE)
+
+
+.PHONY: migrate-create
+migrate-create:
+	@if [ -z "$(NAME)" ]; then \
+		echo "Usage: make migrate-create NAME=<migration_name>"; \
+		exit 1; \
+	fi
+	migrate create -ext sql -dir $(MIGRATION_PATH) -seq $(NAME)
+
+
+.PHONY: migrate-up
+migrate-up:
+	migrate -database "$(DATABASE_URL)" -path $(MIGRATION_PATH) up
+
 
 IMAGE ?= my-app
 VERSION ?= latest
@@ -44,21 +69,3 @@ docker-push:
 	docker build -t $(IMAGE):$(VERSION) .
 	docker tag $(IMAGE):$(VERSION) $(DOCKER_USER)/$(IMAGE):$(VERSION)
 	docker push $(DOCKER_USER)/$(IMAGE):$(VERSION)
-
-# Golangci-lint configuration
-GOLANGCI_VERSION := v2.1.5
-
-# Install golangci-lint using official binary (recommended method)
-.PHONY: install-lint
-install-lint:
-	@which golangci-lint >/dev/null 2>&1 || (curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_VERSION))
-
-# Run golangci-lint
-.PHONY: lint
-lint: install-lint
-	golangci-lint run
-
-# Run golangci-lint with auto-fix
-.PHONY: lint-fix
-lint-fix: install-lint
-	golangci-lint run --fix
