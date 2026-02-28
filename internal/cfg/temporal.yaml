@@ -1,0 +1,27 @@
+# Temporal configuration for workflow engine
+# Non-sensitive settings only - secrets should be loaded from environment variables
+# Secrets (loaded from env):
+#   - TEMPORAL_TLS_CERT_FILE
+#   - TEMPORAL_TLS_KEY_FILE
+#   - TEMPORAL_TLS_CA_FILE
+
+# Connection settings
+enabled: true
+host: "temporal"
+port: "7233"
+namespace: "default"
+tls_enabled: false
+
+worker:
+  # Maximum number of concurrent activity executions per worker
+  max_concurrent_activity_execution_size: 100
+
+  # Maximum number of concurrent workflow task executions per worker
+  max_concurrent_workflow_task_execution_size: 50
+
+  # Timeout for graceful worker shutdown (seconds)
+  stop_timeout_seconds: 30
+
+# Default task queue name for workflows
+# Override per workflow using StartWorkflowOptions
+default_task_queue: "default-task-queue"

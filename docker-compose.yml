@@ -13,6 +13,7 @@ services:
       kafka: { condition: service_healthy }
       redis: { condition: service_started }
       rabbitmq: { condition: service_started }
+      temporal: { condition: service_healthy }
     env_file:
       - .env
     environment:
@@ -20,6 +21,7 @@ services:
       REDIS_HOST: redis
       KAFKA_BROKERS: kafka:9092
       RABBITMQ_HOST: rabbitmq
+      TEMPORAL_HOST: temporal
       OTEL_EXPORTER_OTLP_ENDPOINT: alloy:4317
     networks:
       - app-network
@@ -32,6 +34,47 @@ services:
       resources:
         limits:
           memory: 256M
+    networks:
+      - app-network
+
+  temporal:
+    image: temporalio/server:latest
+    container_name: temporal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    ports:
+      - "7233:7233"  # Temporal gRPC
+    environment:
+      - TEMPORAL_NAMESPACE=default
+      - TEMPORAL_TLS=false
+    volumes:
+      - temporal-data:/var/lib/temporal
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - app-network
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: temporal-ui
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    ports:
+      - "8081:8080"  # Temporal UI (external:internal)
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8081
+    depends_on:
+      temporal:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -177,6 +220,7 @@ volumes:
   loki-data:
   grafana-data:
   kafka-data:
+  temporal-data:
 
 networks:
   app-network:

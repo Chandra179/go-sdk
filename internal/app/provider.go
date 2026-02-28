@@ -14,6 +14,7 @@ import (
 	"gosdk/pkg/db"
 	"gosdk/pkg/logger"
 	"gosdk/pkg/oauth2"
+	"gosdk/pkg/temporal"
 )
 
 // Infrastructure holds all infrastructure dependencies (databases, caches, external services).
@@ -22,6 +23,8 @@ type Infrastructure struct {
 	DB             db.DB
 	Cache          cache.Cache
 	OAuth2Manager  *oauth2.Manager
+	TemporalClient *temporal.Client
+	TemporalWorker *temporal.WorkerManager
 	Logger         *logger.AppLogger
 	MetricsHandler http.Handler
 	shutdownOTel   func(context.Context) error
@@ -31,6 +34,22 @@ type Infrastructure struct {
 // Resources are closed in reverse order of initialization.
 func (i *Infrastructure) Close(ctx context.Context) error {
 	var errs []error
+
+	// Stop temporal workers first (before closing the client)
+	if i.TemporalWorker != nil {
+		i.Logger.Info(ctx, "Stopping temporal workers")
+		if err := i.TemporalWorker.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("temporal worker shutdown: %w", err))
+		}
+	}
+
+	// Close temporal client
+	if i.TemporalClient != nil {
+		i.Logger.Info(ctx, "Closing temporal client")
+		if err := i.TemporalClient.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("temporal client shutdown: %w", err))
+		}
+	}
 
 	if i.DB != nil {
 		i.Logger.Info(ctx, "Closing database connections")
@@ -152,6 +171,16 @@ func initBaseInfrastructure(
 	infra.DB = dbClient
 
 	infra.Cache = bootstrap.InitCache(config.Redis.Host, config.Redis.Port)
+
+	// Initialize Temporal if enabled
+	if config.Temporal != nil && config.Temporal.Enabled {
+		temporalClient, temporalWorker, err := bootstrap.InitTemporal(config.Temporal, appLogger.Logger())
+		if err != nil {
+			return nil, fmt.Errorf("temporal initialization: %w", err)
+		}
+		infra.TemporalClient = temporalClient
+		infra.TemporalWorker = temporalWorker
+	}
 
 	return infra, nil
 }

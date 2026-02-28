@@ -47,3 +47,8 @@ func (l *AppLogger) log(ctx context.Context, level slog.Level, msg string, field
 	}
 	l.handler.Log(ctx, level, msg, attrs...)
 }
+
+// Logger returns the underlying slog.Logger for use with libraries that require it.
+func (l *AppLogger) Logger() *slog.Logger {
+	return &l.handler
+}
