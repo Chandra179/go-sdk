@@ -52,7 +52,7 @@ func (c *Consumer) StartConsumer(ctx context.Context, opts ConsumeOptions, handl
 	// Set QoS (prefetch count) - critical for production
 	prefetchCount := c.client.config.PrefetchCount
 	if prefetchCount <= 0 {
-		prefetchCount = DefaultPrefetchCount
+		return fmt.Errorf("prefetchCount < 0")
 	}
 
 	if err := ch.Qos(prefetchCount, 0, false); err != nil {

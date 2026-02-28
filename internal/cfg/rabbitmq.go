@@ -105,30 +105,30 @@ func (l *Loader) loadRabbitMQYAML() (*RabbitMQYAMLConfig, error) {
 		return nil, errors.New("failed to parse " + rabbitmqYAMLPath + ": " + err.Error())
 	}
 
-	// Set defaults for zero values
+	// Validate required fields - all values must be loaded from YAML
 	if cfg.ConnectionName == "" {
-		cfg.ConnectionName = "go-service"
+		return nil, errors.New("rabbitmq connection_name is required in yaml config")
 	}
 	if cfg.ChannelPoolSize == 0 {
-		cfg.ChannelPoolSize = 10
+		return nil, errors.New("rabbitmq channel_pool_size is required in yaml config")
 	}
 	if cfg.PrefetchCount == 0 {
-		cfg.PrefetchCount = 10
+		return nil, errors.New("rabbitmq prefetch_count is required in yaml config")
 	}
 	if cfg.QueueType == "" {
-		cfg.QueueType = "quorum"
+		return nil, errors.New("rabbitmq queue_type is required in yaml config")
 	}
 	if cfg.RetryTTLSeconds == 0 {
-		cfg.RetryTTLSeconds = 30
+		return nil, errors.New("rabbitmq retry_ttl_seconds is required in yaml config")
 	}
 	if cfg.MaxRetries == 0 {
-		cfg.MaxRetries = 3
+		return nil, errors.New("rabbitmq max_retries is required in yaml config")
 	}
 	if cfg.ReconnectInitialSecs == 0 {
-		cfg.ReconnectInitialSecs = 1
+		return nil, errors.New("rabbitmq reconnect_initial_seconds is required in yaml config")
 	}
 	if cfg.ReconnectMaxSecs == 0 {
-		cfg.ReconnectMaxSecs = 60
+		return nil, errors.New("rabbitmq reconnect_max_seconds is required in yaml config")
 	}
 
 	return &cfg, nil

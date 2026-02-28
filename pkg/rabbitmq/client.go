@@ -53,19 +53,12 @@ type TopologyCache struct {
 // NewClient creates a new RabbitMQ client with auto-reconnection
 func NewClient(config *Config, logger *slog.Logger) (*Client, error) {
 	if config == nil {
-		config = NewDefaultConfig()
+		return nil, fmt.Errorf("rabbitmq: config nil")
 	}
 
-	if config.URL == "" {
-		return nil, fmt.Errorf("rabbitmq URL is required")
-	}
-
-	// Ensure defaults for critical config values
-	if config.ChannelPoolSize <= 0 {
-		config.ChannelPoolSize = DefaultChannelPoolSize
-	}
-	if config.PrefetchCount <= 0 {
-		config.PrefetchCount = DefaultPrefetchCount
+	// Apply defaults for any unset values, returns error if required fields are missing
+	if err := config.ApplyDefaults(); err != nil {
+		return nil, fmt.Errorf("rabbitmq: %w", err)
 	}
 
 	client := &Client{
@@ -84,7 +77,7 @@ func NewClient(config *Config, logger *slog.Logger) (*Client, error) {
 
 	// Initial connection
 	if err := client.connect(); err != nil {
-		return nil, fmt.Errorf("initial connection failed: %w", err)
+		return nil, fmt.Errorf("rabbitmq: initial connection failed: %w", err)
 	}
 
 	return client, nil
@@ -94,14 +87,12 @@ func NewClient(config *Config, logger *slog.Logger) (*Client, error) {
 func (c *Client) connect() error {
 	c.state.Store(int32(StateConnecting))
 
-	// Connect publisher
 	pubConn, err := c.dial("publisher")
 	if err != nil {
 		return fmt.Errorf("publisher connection failed: %w", err)
 	}
 	c.publisherConn = pubConn
 
-	// Connect consumer
 	consConn, err := c.dial("consumer")
 	if err != nil {
 		c.publisherConn.Close()
@@ -132,8 +123,7 @@ func (c *Client) connect() error {
 // dial creates a new connection with the given name
 func (c *Client) dial(connType string) (*amqp.Connection, error) {
 	config := amqp.Config{
-		Heartbeat: DefaultHeartbeatInterval,
-		Locale:    "en_US",
+		Locale: "en_US",
 		Properties: amqp.Table{
 			"connection_name": fmt.Sprintf("%s-%s", c.config.ConnectionName, connType),
 		},
@@ -160,8 +150,9 @@ func (c *Client) handleConnectionClose(conn *amqp.Connection, connType string) {
 	select {
 	case <-c.closeChan:
 		return
-	case err := <-notifyClose:
-		if err != nil {
+	case err, ok := <-notifyClose:
+		// Trigger reconnection when channel closes or error occurs
+		if !ok || err != nil {
 			c.logger.Warn("rabbitmq connection closed",
 				"connection_type", connType,
 				"error", err,
@@ -331,7 +322,6 @@ func (c *Client) Close() error {
 	c.state.Store(int32(StateClosing))
 	close(c.closeChan)
 
-	// Close channel pool
 	close(c.publisherChannels)
 
 	for ch := range c.publisherChannels {

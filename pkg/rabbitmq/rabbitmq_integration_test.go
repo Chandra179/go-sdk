@@ -75,12 +75,15 @@ func TestNewClient(t *testing.T) {
 			URL:                      url,
 			ConnectionName:           "test-client",
 			PublisherConfirms:        true,
-			PrefetchCount:            10,
+			ChannelPoolSize:          DefaultChannelPoolSize,
+			PrefetchCount:            DefaultPrefetchCount,
 			QueueType:                QueueTypeClassic, // Use classic for tests
 			Durable:                  true,
 			RetryEnabled:             true,
+			RetryTTL:                 DefaultRetryTTLSec * time.Second,
+			MaxRetries:               DefaultMaxRetries,
 			DeadLetterEnabled:        true,
-			ReconnectInitialInterval: 1 * time.Second,
+			ReconnectInitialInterval: DefaultReconnectInitialSec * time.Second,
 			ReconnectMaxInterval:     5 * time.Second,
 		}
 
@@ -122,10 +125,14 @@ func TestProducer_PublishMessage_Integration(t *testing.T) {
 			URL:                      url,
 			ConnectionName:           "test-producer",
 			PublisherConfirms:        true,
-			PrefetchCount:            10,
+			ChannelPoolSize:          DefaultChannelPoolSize,
+			PrefetchCount:            DefaultPrefetchCount,
 			QueueType:                QueueTypeClassic,
 			Durable:                  true,
-			ReconnectInitialInterval: 1 * time.Second,
+			RetryEnabled:             true,
+			RetryTTL:                 DefaultRetryTTLSec * time.Second,
+			MaxRetries:               DefaultMaxRetries,
+			ReconnectInitialInterval: DefaultReconnectInitialSec * time.Second,
 			ReconnectMaxInterval:     5 * time.Second,
 		}
 
@@ -223,11 +230,15 @@ func TestConsumer_ManualAck_Integration(t *testing.T) {
 			URL:                      url,
 			ConnectionName:           "test-ack",
 			PublisherConfirms:        true,
-			PrefetchCount:            10,
+			ChannelPoolSize:          DefaultChannelPoolSize,
+			PrefetchCount:            DefaultPrefetchCount,
 			QueueType:                QueueTypeClassic,
 			Durable:                  true,
 			AutoAck:                  false, // Manual ack
-			ReconnectInitialInterval: 1 * time.Second,
+			RetryEnabled:             true,
+			RetryTTL:                 DefaultRetryTTLSec * time.Second,
+			MaxRetries:               DefaultMaxRetries,
+			ReconnectInitialInterval: DefaultReconnectInitialSec * time.Second,
 			ReconnectMaxInterval:     5 * time.Second,
 		}
 
@@ -305,12 +316,15 @@ func TestTopologyManager_SetupDeadLetterExchange_Integration(t *testing.T) {
 		config := &Config{
 			URL:                      url,
 			ConnectionName:           "test-dlx",
-			PrefetchCount:            10,
+			ChannelPoolSize:          DefaultChannelPoolSize,
+			PrefetchCount:            DefaultPrefetchCount,
 			QueueType:                QueueTypeClassic,
 			Durable:                  true,
 			RetryEnabled:             true,
+			RetryTTL:                 DefaultRetryTTLSec * time.Second,
+			MaxRetries:               DefaultMaxRetries,
 			DeadLetterEnabled:        true,
-			ReconnectInitialInterval: 1 * time.Second,
+			ReconnectInitialInterval: DefaultReconnectInitialSec * time.Second,
 			ReconnectMaxInterval:     5 * time.Second,
 		}
 
@@ -361,10 +375,14 @@ func TestClient_Reconnection_Integration(t *testing.T) {
 			URL:                      url,
 			ConnectionName:           "test-reconnect",
 			PublisherConfirms:        true,
-			PrefetchCount:            10,
+			ChannelPoolSize:          DefaultChannelPoolSize,
+			PrefetchCount:            DefaultPrefetchCount,
 			QueueType:                QueueTypeClassic,
 			Durable:                  true,
-			ReconnectInitialInterval: 1 * time.Second,
+			RetryEnabled:             true,
+			RetryTTL:                 DefaultRetryTTLSec * time.Second,
+			MaxRetries:               DefaultMaxRetries,
+			ReconnectInitialInterval: DefaultReconnectInitialSec * time.Second,
 			ReconnectMaxInterval:     5 * time.Second,
 		}
 

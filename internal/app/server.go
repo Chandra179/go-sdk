@@ -50,13 +50,11 @@ func NewServer(provider *Provider) (*Server, error) {
 func (s *Server) setupRoutes() {
 	r := gin.New()
 
-	// Global middleware
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestIDMiddleware())
 	r.Use(middleware.LoggingMiddleware(s.logger))
 	r.Use(middleware.CORSMiddleware())
 
-	// Health and infrastructure routes
 	healthChecker := health.NewChecker(
 		s.provider.Infra.DB,
 		s.provider.Infra.Cache,

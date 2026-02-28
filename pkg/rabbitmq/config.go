@@ -1,6 +1,12 @@
 package rabbitmq
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrURLRequired is returned when the RabbitMQ URL is not provided
+var ErrURLRequired = errors.New("rabbitmq: URL is required")
 
 // QueueType represents the type of RabbitMQ queue
 type QueueType string
@@ -12,19 +18,14 @@ const (
 	QueueTypeClassic QueueType = "classic"
 )
 
-// Default configuration values
+// Default values for RabbitMQ configuration
 const (
-	DefaultPrefetchCount      = 10
-	DefaultRetryTTL           = 30 * time.Second
-	DefaultMaxRetries         = 3
-	DefaultHeartbeatInterval  = 60 * time.Second
-	DefaultConnectionTimeout  = 30 * time.Second
-	DefaultReconnectInitial   = 1 * time.Second
-	DefaultReconnectMax       = 60 * time.Second
-	DefaultChannelPoolSize    = 10
-	DefaultPublisherConfirms  = true
-	DefaultMandatory          = false
-	DefaultPersistentDelivery = true
+	DefaultChannelPoolSize     = 10
+	DefaultPrefetchCount       = 10
+	DefaultReconnectInitialSec = 1
+	DefaultReconnectMaxSec     = 60
+	DefaultRetryTTLSec         = 30
+	DefaultMaxRetries          = 3
 )
 
 // Config holds RabbitMQ configuration
@@ -61,14 +62,14 @@ type Config struct {
 	ReconnectMaxInterval     time.Duration
 }
 
-// NewDefaultConfig returns a Config with sensible defaults for production
+// NewDefaultConfig returns a Config with default values applied
 func NewDefaultConfig() *Config {
 	return &Config{
 		ConnectionName:           "go-service",
-		PublisherConfirms:        DefaultPublisherConfirms,
+		PublisherConfirms:        false,
 		ChannelPoolSize:          DefaultChannelPoolSize,
-		Mandatory:                DefaultMandatory,
-		PersistentDelivery:       DefaultPersistentDelivery,
+		Mandatory:                false,
+		PersistentDelivery:       false,
 		PrefetchCount:            DefaultPrefetchCount,
 		AutoAck:                  false,
 		QueueType:                QueueTypeQuorum,
@@ -76,13 +77,56 @@ func NewDefaultConfig() *Config {
 		AutoDelete:               false,
 		Exclusive:                false,
 		NoWait:                   false,
-		RetryEnabled:             true,
-		RetryTTL:                 DefaultRetryTTL,
+		RetryEnabled:             false,
+		RetryTTL:                 DefaultRetryTTLSec * time.Second,
 		MaxRetries:               DefaultMaxRetries,
-		DeadLetterEnabled:        true,
-		ReconnectInitialInterval: DefaultReconnectInitial,
-		ReconnectMaxInterval:     DefaultReconnectMax,
+		DeadLetterEnabled:        false,
+		ReconnectInitialInterval: DefaultReconnectInitialSec * time.Second,
+		ReconnectMaxInterval:     DefaultReconnectMaxSec * time.Second,
 	}
+}
+
+// ApplyDefaults validates required config fields.
+// Returns an error if any required field is not set.
+// Note: All fields are required - values must be loaded from the YAML configuration.
+func (c *Config) ApplyDefaults() error {
+	if c.URL == "" {
+		return errors.New("rabbitmq: URL is required")
+	}
+
+	if c.ConnectionName == "" {
+		return errors.New("rabbitmq: connection name is required")
+	}
+
+	if c.ChannelPoolSize <= 0 {
+		return errors.New("rabbitmq: channel pool size is required")
+	}
+
+	if c.PrefetchCount <= 0 {
+		return errors.New("rabbitmq: prefetch count is required")
+	}
+
+	if c.QueueType == "" {
+		return errors.New("rabbitmq: queue type is required")
+	}
+
+	if c.RetryTTL <= 0 {
+		return errors.New("rabbitmq: retry TTL is required")
+	}
+
+	if c.MaxRetries <= 0 {
+		return errors.New("rabbitmq: max retries is required")
+	}
+
+	if c.ReconnectInitialInterval <= 0 {
+		return errors.New("rabbitmq: reconnect initial interval is required")
+	}
+
+	if c.ReconnectMaxInterval <= 0 {
+		return errors.New("rabbitmq: reconnect max interval is required")
+	}
+
+	return nil
 }
 
 // QueueConfig represents configuration for a specific queue

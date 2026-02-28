@@ -99,8 +99,6 @@ func NewProvider(ctx context.Context, config *cfg.Config) (*Provider, error) {
 	// Create auth service with OAuth2 callback handler
 	// Note: We pass nil for OAuth2 manager initially, it will be set after OAuth2 initialization
 	authService := auth.NewService(nil, sessionStore, infra.DB)
-
-	// Initialize OAuth2 with the auth callback handler
 	oauth2Manager, err := bootstrap.InitOAuth2(ctx, &config.OAuth2, authService.OAuthCallbackHandler())
 	if err != nil {
 		infra.Close(ctx) // Clean up on failure
@@ -108,10 +106,8 @@ func NewProvider(ctx context.Context, config *cfg.Config) (*Provider, error) {
 	}
 	infra.OAuth2Manager = oauth2Manager
 
-	// Now set the OAuth2 manager in auth service
 	authService.SetOAuth2Manager(oauth2Manager)
 
-	// Create services struct
 	services := &Services{
 		Auth:    authService,
 		Session: sessionStore,
@@ -140,7 +136,6 @@ func initBaseInfrastructure(
 		shutdownOTel:   shutdownOTel,
 	}
 
-	// Initialize database
 	dsn := buildPostgresDSN(&config.Postgres)
 	connConfig := db.ConnectionConfig{
 		MaxOpenConns:    config.Postgres.MaxOpenConns,
@@ -156,7 +151,6 @@ func initBaseInfrastructure(
 	}
 	infra.DB = dbClient
 
-	// Initialize cache
 	infra.Cache = bootstrap.InitCache(config.Redis.Host, config.Redis.Port)
 
 	return infra, nil
