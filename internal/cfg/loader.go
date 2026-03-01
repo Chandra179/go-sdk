@@ -1,17 +1,24 @@
 package cfg
 
 import (
+	"bufio"
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// VaultSecretsPath is the path where Vault Agent writes secret files
+const VaultSecretsPath = "/vault/secrets"
 
 type Loader struct {
 	errs []error
 }
 
 func NewLoader() *Loader {
+	// Load Vault secrets before returning the loader
+	loadVaultSecrets()
 	return &Loader{errs: make([]error, 0)}
 }
 
@@ -24,6 +31,55 @@ func (l *Loader) Error() error {
 		return errors.Join(l.errs...)
 	}
 	return nil
+}
+
+// loadVaultSecrets loads environment variables from Vault Agent output files
+func loadVaultSecrets() {
+	// Check if Vault secrets directory exists
+	if _, err := os.Stat(VaultSecretsPath); os.IsNotExist(err) {
+		// Vault secrets not available, rely on existing env vars
+		return
+	}
+
+	// Read all .env files in the Vault secrets directory
+	entries, err := os.ReadDir(VaultSecretsPath)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".env") {
+			continue
+		}
+
+		filePath := VaultSecretsPath + "/" + entry.Name()
+		file, err := os.Open(filePath)
+		if err != nil {
+			continue
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+
+			// Only set if not already set (env vars take precedence)
+			if os.Getenv(key) == "" {
+				os.Setenv(key, value)
+			}
+		}
+	}
 }
 
 func (l *Loader) requireEnv(key string) string {

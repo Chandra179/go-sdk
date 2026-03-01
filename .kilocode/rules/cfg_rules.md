@@ -1,166 +1,225 @@
 # Configuration Guide
 
-This guide explains how to add new configuration sources to the `internal/cfg` package.
+This guide explains how to manage configuration within the internal/cfg package using a hybrid strategy of local YAML files and HashiCorp Vault environment injection.
 
 ## Overview
 
-The configuration system uses a hybrid approach:
-- **Non-sensitive settings** are loaded from YAML files in `internal/cfg/`
-- **Secrets** (passwords, API keys, certificates, credentials) are loaded from environment variables
+The configuration system follows a strict separation of concerns:
+- Non-sensitive settings (structural config) are stored in YAML files within internal/cfg/. These define how the application behaves and are committed to version control.
+- Secrets (sensitive config) are stored in HashiCorp Vault. These are injected into the application environment at runtime and must never be committed to version control.
 
-## Adding a New YAML Config
+## Adding a New Configuration Source
 
 ### Step 1: Create the YAML File
 
-Create a new YAML file in `internal/cfg/` (e.g., `internal/cfg/newconfig.yaml`):
+Create a new YAML file in internal/cfg/ (e.g., internal/cfg/temporal.yaml). Only include non-sensitive fields.
 
 ```yaml
-# Example configuration
-setting_one: "value"
-setting_two: 100
-enabled: true
+# internal/cfg/temporal.yaml
+host: "temporal"
+port: 7233
+namespace: "default"
+worker:
+  max_concurrent_activities: 100
+  stop_timeout_seconds: 30
 ```
 
 ### Step 2: Update the Go File
+Modify the corresponding Go file in internal/cfg/ (e.g., internal/cfg/temporal.go).
 
-Modify the corresponding Go file (e.g., `internal/cfg/newconfig.go`):
-
-#### 2.1 Add Constants
-
-Add these constants at the top of the file:
+#### 2.1 Define Constants and Secret Keys
+Define the internal file path and the environment variable keys that Vault will populate.
+const configYAMLPath = "internal/cfg/temporal.yaml"
 
 ```go
-// Config file path
-const configYAMLPath = "internal/cfg/newconfig.yaml"
-
-// Environment variable names for secrets
 const (
-    envSecretKey = "SECRET_KEY"
-    envPassword  = "PASSWORD"
+    envTemporalTLSCert = "TEMPORAL_TLS_CERT"
+    envTemporalTLSKey  = "TEMPORAL_TLS_KEY"
 )
 ```
 
-#### 2.2 Add YAML Config Structs
-
-Add YAML struct types that mirror your YAML file:
+#### 2.2 Add Configuration Structs
+Define structs for both the raw YAML mapping and the final application config.
 
 ```go
-type NewConfigYAMLConfig struct {
-    SettingOne string `yaml:"setting_one"`
-    SettingTwo  int    `yaml:"setting_two"`
-    Enabled    bool   `yaml:"enabled"`
+type TemporalYAMLConfig struct {
+    Host      string `yaml:"host"`
+    Port      int    `yaml:"port"`
+    Namespace string `yaml:"namespace"`
+    Worker    struct {
+        MaxActivities int `yaml:"max_concurrent_activities"`
+        StopTimeout   int `yaml:"stop_timeout_seconds"`
+    } `yaml:"worker"`
+}
+
+type TemporalConfig struct {
+    Host          string
+    Port          int
+    Namespace     string
+    MaxActivities int
+    StopTimeout   int
+    TLSCert       string // Loaded from Vault/Env
+    TLSKey        string // Loaded from Vault/Env
 }
 ```
 
-#### 2.3 Add Main Config Struct
-
-Keep your existing config struct for internal use:
-
-```go
-type NewConfig struct {
-    SettingOne string
-    SettingTwo int
-    Enabled    bool
-    Secret     string  // from env
-}
-```
-
-#### 2.4 Create Load Function
+#### 2.3 Create the Load Function
+The loader merges the YAML file data with the secrets injected into the environment.
 
 ```go
-func (l *Loader) loadNewConfig() *NewConfig {
-    yamlCfg, err := l.loadNewConfigYAML()
+func (l *Loader) loadTemporalConfig() *TemporalConfig {
+    yamlCfg, err := l.loadTemporalYAML()
     if err != nil {
-        l.errs = append(l.errs, errors.New("failed to load newconfig yaml config: "+err.Error()))
+        l.errs = append(l.errs, errors.New("failed to load temporal yaml: "+err.Error()))
         return nil
     }
 
-    // Load secrets from env
-    secret := l.getEnvWithDefault(envSecretKey, "")
-
-    return &NewConfig{
-        SettingOne: yamlCfg.SettingOne,
-        SettingTwo: yamlCfg.SettingTwo,
-        Enabled:    yamlCfg.Enabled,
-        Secret:     secret,
+    return &TemporalConfig{
+        Host:          yamlCfg.Host,
+        Port:          yamlCfg.Port,
+        Namespace:     yamlCfg.Namespace,
+        MaxActivities: yamlCfg.Worker.MaxActivities,
+        StopTimeout:   yamlCfg.Worker.StopTimeout,
+        TLSCert:       l.getEnv(envTemporalTLSCert),
+        TLSKey:        l.getEnv(envTemporalTLSKey),
     }
 }
 
-func (l *Loader) loadNewConfigYAML() (*NewConfigYAMLConfig, error) {
+func (l *Loader) loadTemporalYAML() (*TemporalYAMLConfig, error) {
     yamlData, err := os.ReadFile(configYAMLPath)
     if err != nil {
-        return nil, errors.New("failed to read "+configYAMLPath+": " + err.Error())
+        return nil, err
     }
-
-    var cfg NewConfigYAMLConfig
+    var cfg TemporalYAMLConfig
     if err := yaml.Unmarshal(yamlData, &cfg); err != nil {
-        return nil, errors.New("failed to parse "+configYAMLPath+": " + err.Error())
+        return nil, err
     }
-
     return &cfg, nil
 }
 ```
 
 ### Step 3: Update config.go
-
-Add your config to the main `Config` struct in `config.go`:
+Register the new config in the root Config struct and the Load() function.
 
 ```go
 type Config struct {
-    // ... existing fields
-    NewConfig *NewConfig
+    // ...
+    Temporal *TemporalConfig
 }
-```
 
-And update the `Load()` function:
-
-```go
+// In Load()
 cfg := &Config{
-    // ... existing fields
-    NewConfig: l.loadNewConfig(),
+    // ...
+    Temporal: l.loadTemporalConfig(),
 }
 ```
 
-## Environment Variables for Secrets
+## HashiCorp Vault Secret Management
 
-Always use environment variables for sensitive data:
+### CLI Usage
 
-| Config      | Environment Variables                              |
-|-------------|---------------------------------------------------|
-| Kafka       | `KAFKA_TLS_CERT_FILE`, `KAFKA_TLS_KEY_FILE`, `KAFKA_TLS_CA_FILE`, `KAFKA_SCHEMA_REGISTRY_USERNAME`, `KAFKA_SCHEMA_REGISTRY_PASSWORD`, `KAFKA_TRANSACTION_ID` |
-| RabbitMQ    | `RABBITMQ_URL`                                    |
+To save secrets into Vault so the application can read them, use the kv put command.
+
+```bash
+# Postgres secrets
+vault kv put secret/go-sdk/postgres password="secure-password"
+
+# OAuth2/JWT secrets
+vault kv put secret/go-sdk/oauth2 \
+  client_id="your-google-client-id" \
+  client_secret="your-google-client-secret" \
+  jwt_secret="your-jwt-secret-min-32-chars"
+
+# Redis secrets
+vault kv put secret/go-sdk/redis password="redis-password"
+
+# RabbitMQ secrets (URL contains credentials)
+vault kv put secret/go-sdk/rabbitmq url="amqp://user:pass@host:5672/"
+
+# Kafka secrets (TLS and Schema Registry)
+vault kv put secret/go-sdk/kafka \
+  tls_cert_file="/path/to/cert.pem" \
+  tls_key_file="/path/to/key.pem" \
+  schema_registry_username="user" \
+  schema_registry_password="pass"
+
+# Temporal secrets (TLS certificates)
+vault kv put secret/go-sdk/temporal \
+  tls_cert_file="/path/to/temporal-cert.pem" \
+  tls_key_file="/path/to/temporal-key.pem"
+```
+
+### Environment Injection Reference
+
+The application accesses these secrets through environment variable injection via Vault Agent. The Vault Agent runs as a sidecar and writes secrets to `/vault/secrets/*.env` files.
+
+| Service | Secret Variables | Vault Path |
+|---------|------------------|------------|
+| Postgres | `POSTGRES_PASSWORD` | `secret/go-sdk/postgres` |
+| OAuth2 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `secret/go-sdk/oauth2` |
+| JWT | `JWT_SECRET` | `secret/go-sdk/oauth2` |
+| Redis | `REDIS_PASSWORD` | `secret/go-sdk/redis` |
+| RabbitMQ | `RABBITMQ_URL` | `secret/go-sdk/rabbitmq` |
+| Kafka | `tls_cert`, `tls_key`, `tls_ca` (content), `KAFKA_SCHEMA_REGISTRY_USERNAME`, `KAFKA_SCHEMA_REGISTRY_PASSWORD`, `KAFKA_TRANSACTION_ID` | `secret/go-sdk/kafka` |
+| Temporal | `tls_cert`, `tls_key`, `tls_ca` (content) | `secret/go-sdk/temporal` |
+
+**Note**: For TLS certificates, the actual certificate content is stored in Vault (not just file paths). The `vault-setup-secrets.sh` script loads certificate files from the `secrets/` directory into Vault.
+
+### Helper Scripts
+
+Use the provided scripts for easier Vault management:
+
+```bash
+# Initialize Vault and create policies
+./scripts/vault-init.sh
+
+# Setup all application secrets (interactive mode)
+./scripts/vault-setup-secrets.sh -i
+
+# Quick development mode (starts Vault + Agent + sets up secrets)
+./scripts/vault-dev-mode.sh
+
+# Verify secrets are set correctly
+./scripts/vault-setup-secrets.sh --verify-only
+```
+
+### Docker Compose Integration
+
+When running with Docker Compose, Vault and Vault Agent start automatically:
+
+```bash
+# Start all services including Vault
+docker-compose up -d
+
+# Vault UI available at http://localhost:8200 (token: root)
+# Secrets are automatically injected into the application container
+```
 
 ## Best Practices
 
-1. **YAML for non-secrets**: All non-sensitive configuration should go in YAML
-2. **Env for secrets**: Passwords, API keys, tokens, certificates should always come from environment variables
-3. **Use constants**: Define environment variable names as constants at the top of the file
-4. **Validate required fields**: Check for required fields and add errors to the loader
-5. **Provide defaults**: Set sensible defaults in the YAML file, not in code
+**YAML for Structure**: Use YAML for timeouts, limits, hostnames, and logic-altering toggles.
 
-## Example: Adding a Redis Config (if needed in the future)
+**Vault for Identity**: Use Vault for passwords, private keys, and API tokens.
 
-```yaml
-# internal/cfg/redis.yaml
-host: "localhost"
-port: 6379
-db: 0
-pool_size: 10
-```
+**Fail Early**: If a required secret is missing from the environment, the Loader must append an error to prevent the app from starting in an unstable state. See `internal/cfg/loader.go` for implementation.
 
-```go
-// internal/cfg/redis.go
-const redisYAMLPath = "internal/cfg/redis.yaml"
+**Local Dev**: Use the `vault-dev-mode.sh` script or a `.env.vault` file (git-ignored) to simulate Vault injection during local development. Never commit actual secrets.
 
-const (
-    envREDISPassword = "REDIS_PASSWORD"
-)
-```
+**No Defaults for Secrets**: Never provide hardcoded fallback values for sensitive credentials in the code. The `requireEnv()` function in the Loader enforces this.
 
-## Troubleshooting
+**Secret Rotation**: When using Vault, secrets can be rotated without application restart. Vault Agent will automatically re-render templates when secrets change.
 
-If configuration fails to load:
-1. Check that the YAML file exists in `internal/cfg/`
-2. Verify environment variables are set for secrets
-3. Check for YAML syntax errors
-4. Ensure the config struct field names match YAML keys (use `yaml:` tags)
+**Production Hardening**:
+- Use TLS for Vault connections (`https://vault.production.example.com:8200`)
+- Replace token-based auth with AppRole, Kubernetes auth, or cloud IAM
+- Enable Vault audit logging
+- Use short-lived dynamic credentials where possible (database credentials, cloud IAM)
+- Rotate root tokens regularly
+
+**Security Checklist**:
+- [ ] All secrets stored in Vault, none in code or YAML
+- [ ] `.env.example` contains only non-sensitive configuration
+- [ ] Vault Agent sidecar configured with minimal privileges
+- [ ] Policies follow least-privilege principle (see `vault/gosdk-policy.hcl`)
+- [ ] Local development uses dev mode only
+- [ ] Production uses proper authentication (not root token)

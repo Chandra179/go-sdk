@@ -3,6 +3,7 @@ package cfg
 import (
 	"errors"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -13,6 +14,9 @@ const kafkaYAMLPath = "internal/cfg/kafka.yaml"
 
 // Environment variable names for Kafka secrets
 const (
+	// Brokers (allows override of YAML config for Docker environments)
+	envKAFKABrokers = "KAFKA_BROKERS"
+
 	// Security/TLS
 	envKAFKATLSCertFile = "KAFKA_TLS_CERT_FILE"
 	envKAFKATLSKeyFile  = "KAFKA_TLS_KEY_FILE"
@@ -191,8 +195,11 @@ func (l *Loader) loadKafka() *KafkaConfig {
 		return nil
 	}
 
+	// Brokers can be overridden via KAFKA_BROKERS env var (comma-separated)
+	brokers := l.loadBrokers(yamlCfg.Brokers)
+
 	// Validate required fields
-	if len(yamlCfg.Brokers) == 0 {
+	if len(brokers) == 0 {
 		l.errs = append(l.errs, errors.New("kafka brokers is required"))
 	}
 
@@ -203,7 +210,7 @@ func (l *Loader) loadKafka() *KafkaConfig {
 	schemaRegistry := l.loadSchemaRegistryConfig(yamlCfg.SchemaRegistry)
 
 	return &KafkaConfig{
-		Brokers:        yamlCfg.Brokers,
+		Brokers:        brokers,
 		Producer:       l.toProducerConfig(yamlCfg.Producer),
 		Consumer:       l.toConsumerConfig(yamlCfg.Consumer),
 		Security:       *security,
@@ -213,6 +220,32 @@ func (l *Loader) loadKafka() *KafkaConfig {
 		Transaction:    l.toTransactionConfig(yamlCfg.Transaction),
 		SchemaRegistry: *schemaRegistry,
 	}
+}
+
+// loadBrokers loads broker list from env var KAFKA_BROKERS (comma-separated) or falls back to YAML config
+func (l *Loader) loadBrokers(yamlBrokers []string) []string {
+	if envBrokers := os.Getenv(envKAFKABrokers); envBrokers != "" {
+		// Parse comma-separated brokers
+		var brokers []string
+		for _, broker := range splitAndTrim(envBrokers, ",") {
+			if broker != "" {
+				brokers = append(brokers, broker)
+			}
+		}
+		if len(brokers) > 0 {
+			return brokers
+		}
+	}
+	return yamlBrokers
+}
+
+// splitAndTrim splits a string by separator and trims whitespace from each part
+func splitAndTrim(s, sep string) []string {
+	parts := make([]string, 0)
+	for _, part := range strings.Split(s, sep) {
+		parts = append(parts, strings.TrimSpace(part))
+	}
+	return parts
 }
 
 // loadKafkaYAML loads Kafka configuration from internal/cfg/kafka.yaml

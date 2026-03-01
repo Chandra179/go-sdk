@@ -1,4 +1,57 @@
 services:
+  vault:
+    image: hashicorp/vault:latest
+    container_name: vault
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault-data:/vault/file
+    command: server -dev -dev-root-token-id=root
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app-network
+
+  vault-agent:
+    image: hashicorp/vault:latest
+    container_name: vault-agent
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    depends_on:
+      vault:
+        condition: service_healthy
+    volumes:
+      - ./vault/vault-agent.hcl:/vault/config/agent.hcl:ro
+      - vault-secrets:/vault/secrets
+      - vault-token:/vault/token
+    environment:
+      VAULT_ADDR: http://vault:8200
+    cap_add:
+      - IPC_LOCK
+    command: agent -config=/vault/config/agent.hcl
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /vault/secrets/postgres.env || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    networks:
+      - app-network
+
   gosdk-app:
     build: .
     container_name: gosdk-app
@@ -7,22 +60,35 @@ services:
         limits:
           memory: 512M
     ports:
-      - "8080:8080"  # HTTP API
+      - "8080:8080"
     depends_on:
-      postgres: { condition: service_healthy }
-      kafka: { condition: service_healthy }
-      redis: { condition: service_started }
-      rabbitmq: { condition: service_started }
-      temporal: { condition: service_healthy }
+      vault-agent:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      temporal:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
+      # Values from internal/cfg/kafka.yaml (broker address for Docker network)
       KAFKA_BROKERS: kafka:9092
       RABBITMQ_HOST: rabbitmq
       TEMPORAL_HOST: temporal
       OTEL_EXPORTER_OTLP_ENDPOINT: alloy:4317
+      # Vault configuration
+      VAULT_ADDR: http://vault:8200
+    volumes:
+      - vault-secrets:/vault/secrets:ro
+      - vault-token:/vault/token:ro
     networks:
       - app-network
       - monitoring
@@ -38,7 +104,7 @@ services:
       - app-network
 
   temporal:
-    image: temporalio/server:latest
+    image: temporalio/auto-setup:latest
     container_name: temporal
     deploy:
       resources:
@@ -46,17 +112,24 @@ services:
           memory: 512M
     ports:
       - "7233:7233"  # Temporal gRPC
+    env_file:
+      - .env
     environment:
-      - TEMPORAL_NAMESPACE=default
-      - TEMPORAL_TLS=false
-    volumes:
-      - temporal-data:/var/lib/temporal
+      # Temporal visibility and persistence db names
+      TEMPORAL_DB: temporal
+      TEMPORAL_VISIBILITY_DB: temporal_visibility
+      # Default namespace from internal/cfg/temporal.yaml
+      TEMPORAL_DEFAULT_NAMESPACE: default
+      TEMPORAL_DEFAULT_NAMESPACE_RETENTION: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "temporal operator cluster health"]
+      test: ["CMD-SHELL", "temporal operator cluster health || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 10
+      start_period: 60s
     networks:
       - app-network
 
@@ -131,11 +204,12 @@ services:
     ports:
       - "5432:5432"  # PostgreSQL external access
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
+      # Values from internal/cfg/postgres.yaml (non-sensitive config)
+      POSTGRES_USER: myuser
+      POSTGRES_DB: mydb
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U myuser -d mydb"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -221,6 +295,9 @@ volumes:
   grafana-data:
   kafka-data:
   temporal-data:
+  vault-data:
+  vault-secrets:
+  vault-token:
 
 networks:
   app-network:

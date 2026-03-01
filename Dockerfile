@@ -19,7 +19,7 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /app/main .
-COPY --from=builder /app/db/migrations ./db/migrations
+COPY --from=builder /app/internal/db/migrations ./db/migrations
 
 # Expose App ports
 EXPOSE 8080 9090

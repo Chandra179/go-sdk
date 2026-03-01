@@ -36,7 +36,8 @@ vendor/
 ./api/proto/gen/
 api/proto/gen/
 .opencode
-secrets/
+secrets/*
+!secrets/README.md
 
 # Golangci-lint cache
 .golangci-lint-cache/
