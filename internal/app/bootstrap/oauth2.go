@@ -15,13 +15,11 @@ func InitOAuth2(ctx context.Context, config *cfg.Oauth2Config, callbackHandler o
 		return nil, fmt.Errorf("callback handler is required")
 	}
 
-	// Create manager configuration from app config
 	managerConfig := &oauth2.ManagerConfig{
 		CallbackHandler: callbackHandler,
 		StateTimeout:    config.StateTimeout,
 	}
 
-	// Create manager with Google provider
 	manager, err := oauth2.NewManagerWithGoogle(
 		ctx,
 		managerConfig,

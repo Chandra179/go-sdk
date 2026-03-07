@@ -42,7 +42,7 @@ POSTGRES_USER ?= myuser
 POSTGRES_PASSWORD ?= mypassword
 POSTGRES_DB ?= mydb
 POSTGRES_SSLMODE ?= disable
-MIGRATION_PATH ?= db/migrations
+MIGRATION_PATH ?= internal/db/migrations
 DATABASE_URL := postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=$(POSTGRES_SSLMODE)
 
 

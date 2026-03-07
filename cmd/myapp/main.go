@@ -31,7 +31,6 @@ func main() {
 		log.Fatalf("Failed to initialize provider: %v", err)
 	}
 
-	// Create the HTTP Server using the Provider
 	server, err := app.NewServer(provider)
 	if err != nil {
 		if closeErr := provider.Infra.Close(ctx); closeErr != nil {
@@ -51,7 +50,6 @@ func main() {
 		cancel()
 	}()
 
-	// Run server in a goroutine so we can handle shutdown
 	errCh := make(chan error, 1)
 	go func() {
 		if err := server.Run(); err != nil {
@@ -62,15 +60,12 @@ func main() {
 	// Wait for either shutdown signal or server error
 	select {
 	case <-ctx.Done():
-		// Graceful shutdown triggered by signal
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 
-		// Shutdown HTTP server first
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			log.Printf("HTTP server shutdown error: %v", err)
 		}
 
-		// Then close infrastructure resources
 		if err := provider.Infra.Close(shutdownCtx); err != nil {
 			log.Printf("Infrastructure shutdown error: %v", err)
 		}

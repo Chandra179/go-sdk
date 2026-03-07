@@ -110,13 +110,12 @@ This project implements a comprehensive observability stack using OpenTelemetry 
 This project uses **[sqlc](https://docs.sqlc.dev/)** for type-safe SQL code generation. sqlc generates Go code from SQL queries, providing compile-time safety and eliminating the need for ORMs.
 
 ### Generating Code
-
+ 
 After modifying SQL queries or schema, regenerate Go code:
 
 ```bash
 sqlc generate
 ```
-
 
 
 
@@ -127,22 +126,8 @@ The project provides a robust Kafka client implementation using [franz-go](https
 ![Kafka architecture](img/kafka_arch.png)
 
 
-
-
-
 ## RabbitMQ Architecture
 
 The project provides a robust RabbitMQ client AMQP implementation with automatic reconnection, channel pooling, and Dead Letter Exchange (DLX) support for reliable message processing.
-
-
-
-
-
-
-### Data Flow
-
-1. **Publishing**: Application → Producer → Publisher Channel Pool → RabbitMQ Exchange
-2. **Consuming**: RabbitMQ Queue → Consumer Channel Pool → Message Handler → ACK/NACK
-3. **Error Handling**: Failed messages → Retry Queue (with TTL) → Main Queue → Parking Lot
 
 For detailed usage and configuration, see [pkg/rabbitmq/README.md](pkg/rabbitmq/README.md).

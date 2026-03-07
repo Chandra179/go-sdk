@@ -64,7 +64,6 @@ func InitOtel(ctx context.Context, obsCfg *cfg.OtelConfig, samplerRatio float64)
 }
 
 func setupMetrics(ctx context.Context, cfg *cfg.OtelConfig, res *resource.Resource) (*metric.MeterProvider, http.Handler, error) {
-	// Create a custom Prometheus registry for OTEL metrics
 	reg := prometheus.NewRegistry()
 
 	// Create Prometheus exporter with the custom registry
