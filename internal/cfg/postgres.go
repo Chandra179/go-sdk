@@ -18,13 +18,12 @@ const (
 
 // PostgresConfig holds database configuration
 type PostgresConfig struct {
-	Host          string
-	Port          string
-	User          string
-	Password      string
-	DBName        string
-	SSLMode       string
-	MigrationPath string
+	Host     string
+	Port     string
+	User     string
+	Password string
+	DBName   string
+	SSLMode  string
 
 	// Connection pool settings
 	MaxOpenConns    int           // Maximum number of open connections
@@ -69,7 +68,6 @@ func (l *Loader) loadPostgres() PostgresConfig {
 		Password:        password,
 		DBName:          yamlCfg.Database,
 		SSLMode:         yamlCfg.SSLMode,
-		MigrationPath:   yamlCfg.MigrationPath,
 		MaxOpenConns:    yamlCfg.MaxOpenConns,
 		MaxIdleConns:    yamlCfg.MaxIdleConns,
 		ConnMaxLifetime: time.Duration(yamlCfg.ConnMaxLifetimeSeconds) * time.Second,

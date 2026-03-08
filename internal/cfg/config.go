@@ -12,7 +12,6 @@ type Config struct {
 	Observability   OtelConfig
 	Kafka           *KafkaConfig
 	RabbitMQ        *RabbitMQConfig
-	Temporal        *TemporalConfig
 	HTTPServer      HTTPServerConfig
 	ShutdownTimeout time.Duration
 }
@@ -28,7 +27,6 @@ func Load() (*Config, error) {
 		Observability:   l.loadOtel(),
 		Kafka:           l.loadKafka(),
 		RabbitMQ:        l.loadRabbitMQ(),
-		Temporal:        l.loadTemporal(),
 		HTTPServer:      l.loadHTTPServer(),
 		ShutdownTimeout: l.requireDuration("SHUTDOWN_TIMEOUT"),
 	}
