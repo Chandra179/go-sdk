@@ -33,13 +33,3 @@ rt:
 .PHONY: sqlc
 sqlc:
 	sqlc generate
-
-IMAGE ?= my-app
-VERSION ?= latest
-DOCKER_USER ?= c1789
-
-.PHONY: docker-push
-docker-push:
-	docker build -t $(IMAGE):$(VERSION) .
-	docker tag $(IMAGE):$(VERSION) $(DOCKER_USER)/$(IMAGE):$(VERSION)
-	docker push $(DOCKER_USER)/$(IMAGE):$(VERSION)
