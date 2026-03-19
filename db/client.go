@@ -7,49 +7,69 @@ import (
 	"time"
 )
 
-// ErrDatabaseTimeout is returned when a database operation times out
+// ErrDatabaseTimeout is returned when a database operation times out.
 var ErrDatabaseTimeout = errors.New("database operation timed out")
 
-// ErrDuplicateKey is returned when a unique constraint is violated
+// ErrDuplicateKey is returned when a unique constraint is violated.
 var ErrDuplicateKey = errors.New("duplicate key violation")
 
-// ErrConnectionFailed is returned when database connection fails
+// ErrConnectionFailed is returned when database connection fails.
 var ErrConnectionFailed = errors.New("database connection failed")
 
 // DBTX is the interface for database operations that both *sql.DB and *sql.Tx implement.
 // This is compatible with sqlc's generated interface and allows using either
-// a connection pool or a transaction.
+// a connection pool or a transaction interchangeably.
 type DBTX interface {
-	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
-	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // SQLExecutor extends DBTX with transaction management capabilities.
-// This interface is used by repositories that need transaction support.
+// Repositories that need transaction support should depend on this interface.
 type SQLExecutor interface {
 	DBTX
-	// WithTransaction executes a function within a database transaction.
-	// The transaction is automatically committed if the function returns nil,
-	// or rolled back if the function returns an error.
-	WithTransaction(ctx context.Context, isolationLevel sql.IsolationLevel, fn func(ctx context.Context, tx *sql.Tx) error) error
+	// WithTransaction executes fn within a database transaction using the given
+	// isolation level. The transaction is automatically committed if fn returns
+	// nil, or rolled back if fn returns an error or panics.
+	//
+	// The tx argument passed to fn implements DBTX, so it can be passed directly
+	// to any sqlc-generated query function.
+	WithTransaction(ctx context.Context, isolationLevel sql.IsolationLevel, fn func(ctx context.Context, tx DBTX) error) error
 }
 
-// ConnectionConfig holds connection pool configuration
+// ConnectionConfig holds connection pool and query timeout configuration.
+//
+// Zero values are ignored — the underlying sql.DB defaults are preserved for
+// any field left unset.
 type ConnectionConfig struct {
-	MaxOpenConns    int
-	MaxIdleConns    int
+	// MaxOpenConns sets the maximum number of open connections to the database.
+	MaxOpenConns int
+	// MaxIdleConns sets the maximum number of idle connections in the pool.
+	MaxIdleConns int
+	// ConnMaxLifetime sets the maximum time a connection may be reused.
 	ConnMaxLifetime time.Duration
+	// ConnMaxIdleTime sets the maximum time a connection may be idle before closing.
 	ConnMaxIdleTime time.Duration
-	QueryTimeout    time.Duration
+	// QueryTimeout, when non-zero, is applied as a deadline to every query that
+	// does not already carry a shorter deadline via its context.
+	QueryTimeout time.Duration
 }
 
-// DB is the database client interface that provides both query capabilities
-// and connection management
+// DB is the top-level database handle returned by a driver constructor such as
+// NewPostgresClient. It combines query execution with lifecycle management.
+//
+// Only the owner of the DB (typically main or a dependency-injection root)
+// should hold this interface and call Close. Pass SQLExecutor or DBTX to
+// everything else so that no downstream package can accidentally shut down the
+// shared connection pool.
 type DB interface {
 	SQLExecutor
+	// Close releases all resources held by the connection pool. It should be
+	// called exactly once, by the component that created the DB.
 	Close() error
-	Ping(ctx context.Context) error
+	// PingContext verifies that the database is reachable. Useful for health
+	// checks and startup probes.
 	PingContext(ctx context.Context) error
 }

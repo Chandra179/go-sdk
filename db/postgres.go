@@ -11,20 +11,25 @@ import (
 	"github.com/lib/pq"
 )
 
-// postgresClient implements the DB interface for PostgreSQL
+// postgresClient implements the DB interface for PostgreSQL using lib/pq.
 type postgresClient struct {
 	db     *sql.DB
 	config ConnectionConfig
 }
 
-// NewPostgresClient creates a new PostgreSQL database client with the given configuration
+// NewPostgresClient creates a new PostgreSQL database client with the given DSN
+// and connection pool configuration. The connection is verified with a ping
+// before returning, so a non-nil return value is ready to use.
+//
+// The caller is responsible for calling Close() when the client is no longer
+// needed (typically at process shutdown).
 func NewPostgresClient(dsn string, config ConnectionConfig) (DB, error) {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 	}
 
-	// Configure connection pool
+	// Configure connection pool — zero values preserve sql.DB defaults.
 	if config.MaxOpenConns > 0 {
 		db.SetMaxOpenConns(config.MaxOpenConns)
 	}
@@ -38,7 +43,7 @@ func NewPostgresClient(dsn string, config ConnectionConfig) (DB, error) {
 		db.SetConnMaxIdleTime(config.ConnMaxIdleTime)
 	}
 
-	// Test connection
+	// Verify the connection before handing the client to the caller.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -47,37 +52,65 @@ func NewPostgresClient(dsn string, config ConnectionConfig) (DB, error) {
 		return nil, fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 	}
 
-	return &postgresClient{
-		db:     db,
-		config: config,
-	}, nil
+	return &postgresClient{db: db, config: config}, nil
 }
 
-// ExecContext executes a query without returning any rows
-func (c *postgresClient) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+// withQueryTimeout wraps ctx with QueryTimeout when the config has one set and
+// the context does not already carry a shorter deadline.
+func (c *postgresClient) withQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.config.QueryTimeout <= 0 {
+		return ctx, func() {}
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		if time.Until(deadline) <= c.config.QueryTimeout {
+			// Caller's deadline is already tighter — don't override it.
+			return ctx, func() {}
+		}
+	}
+	return context.WithTimeout(ctx, c.config.QueryTimeout)
+}
+
+// ExecContext executes a query without returning any rows.
+func (c *postgresClient) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	ctx, cancel := c.withQueryTimeout(ctx)
+	defer cancel()
 	return c.db.ExecContext(ctx, query, args...)
 }
 
-// PrepareContext creates a prepared statement
+// PrepareContext creates a prepared statement for later use.
 func (c *postgresClient) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	ctx, cancel := c.withQueryTimeout(ctx)
+	defer cancel()
 	return c.db.PrepareContext(ctx, query)
 }
 
-// QueryContext executes a query that returns multiple rows
-func (c *postgresClient) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+// QueryContext executes a query that returns multiple rows.
+func (c *postgresClient) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	ctx, cancel := c.withQueryTimeout(ctx)
+	defer cancel()
 	return c.db.QueryContext(ctx, query, args...)
 }
 
-// QueryRowContext executes a query that returns a single row
-func (c *postgresClient) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+// QueryRowContext executes a query that returns at most one row.
+func (c *postgresClient) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	ctx, cancel := c.withQueryTimeout(ctx)
+	defer cancel()
 	return c.db.QueryRowContext(ctx, query, args...)
 }
 
-// WithTransaction executes a function within a database transaction
-func (c *postgresClient) WithTransaction(ctx context.Context, isolationLevel sql.IsolationLevel, fn func(ctx context.Context, tx *sql.Tx) error) error {
-	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{
-		Isolation: isolationLevel,
-	})
+// WithTransaction executes fn within a database transaction at the requested
+// isolation level.
+//
+// The DBTX passed to fn is the underlying *sql.Tx, which is safe to pass to
+// any sqlc-generated query. The transaction is committed when fn returns nil
+// and rolled back otherwise. A panic inside fn triggers a rollback and is
+// re-raised after the rollback completes.
+func (c *postgresClient) WithTransaction(
+	ctx context.Context,
+	isolationLevel sql.IsolationLevel,
+	fn func(ctx context.Context, tx DBTX) error,
+) error {
+	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{Isolation: isolationLevel})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -85,13 +118,13 @@ func (c *postgresClient) WithTransaction(ctx context.Context, isolationLevel sql
 	defer func() {
 		if p := recover(); p != nil {
 			_ = tx.Rollback()
-			panic(p)
+			panic(p) // re-raise after rollback
 		}
 	}()
 
 	if err := fn(ctx, tx); err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
-			return fmt.Errorf("transaction failed: %v, rollback failed: %w", err, rbErr)
+			return fmt.Errorf("transaction failed: %v, rollback also failed: %w", err, rbErr)
 		}
 		return err
 	}
@@ -103,95 +136,95 @@ func (c *postgresClient) WithTransaction(ctx context.Context, isolationLevel sql
 	return nil
 }
 
-// Close closes the database connection
+// Close releases all resources held by the connection pool.
 func (c *postgresClient) Close() error {
 	return c.db.Close()
 }
 
-// Ping verifies the database connection
-func (c *postgresClient) Ping(ctx context.Context) error {
-	return c.db.PingContext(ctx)
-}
-
-// PingContext verifies the database connection (alias for Ping)
+// PingContext verifies the database is reachable.
 func (c *postgresClient) PingContext(ctx context.Context) error {
 	return c.db.PingContext(ctx)
 }
 
-// IsTimeoutError checks if an error is a database timeout error
+// ---- Error classification helpers ------------------------------------------
+//
+// These helpers are intentionally separate from the sentinel errors so callers
+// can decide how to handle driver-level errors without importing lib/pq
+// themselves. Both functions fall back to string matching when the error is not
+// a *pq.Error (e.g. wrapped errors from pgx or other drivers).
+
+// IsTimeoutError reports whether err represents a query or connection timeout.
+//
+// It recognises:
+//   - context.DeadlineExceeded
+//   - PostgreSQL error codes 57014 (query_canceled), 57013 (statement_timeout),
+//     57012 (canceling_statement_due_to_timeout), 40001 (serialization_failure)
+//   - Common timeout-related substrings for driver-agnostic fallback
 func IsTimeoutError(err error) bool {
 	if err == nil {
 		return false
 	}
-
-	// Check for context deadline exceeded
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 
-	// Check for PostgreSQL timeout errors
-	if pqErr, ok := err.(*pq.Error); ok {
-		// PostgreSQL error codes for timeout-related errors
-		timeoutCodes := map[string]bool{
-			"57014": true, // query_canceled
-			"57013": true, // statement_timeout
-			"57012": true, // canceling_statement_due_to_timeout
-			"40001": true, // serialization_failure (often due to lock timeout)
-		}
-		if timeoutCodes[string(pqErr.Code)] {
+	// lib/pq fast path — checked first to avoid string allocation.
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		switch pqErr.Code {
+		case "57014", // query_canceled
+			"57013", // statement_timeout
+			"57012", // canceling_statement_due_to_timeout
+			"40001": // serialization_failure (lock timeout)
 			return true
 		}
 	}
 
-	// Check error message for timeout-related strings
-	errStr := strings.ToLower(err.Error())
-	timeoutKeywords := []string{
+	// Driver-agnostic fallback (covers pgx, wrapped errors, etc.).
+	msg := strings.ToLower(err.Error())
+	for _, kw := range []string{
 		"timeout",
 		"deadline exceeded",
 		"context deadline",
 		"connection timed out",
 		"i/o timeout",
 		"query_canceled",
-	}
-
-	for _, keyword := range timeoutKeywords {
-		if strings.Contains(errStr, keyword) {
+	} {
+		if strings.Contains(msg, kw) {
 			return true
 		}
 	}
-
 	return false
 }
 
-// IsDuplicateKeyError checks if an error is a duplicate key/unique constraint violation
+// IsDuplicateKeyError reports whether err is a unique-constraint violation.
+//
+// It recognises:
+//   - PostgreSQL error code 23505 (unique_violation)
+//   - Common duplicate-key substrings for driver-agnostic fallback
 func IsDuplicateKeyError(err error) bool {
 	if err == nil {
 		return false
 	}
 
-	// Check for PostgreSQL unique violation
-	if pqErr, ok := err.(*pq.Error); ok {
-		// 23505 is PostgreSQL's unique_violation error code
-		if pqErr.Code == "23505" {
-			return true
-		}
+	// lib/pq fast path.
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23505" // unique_violation
 	}
 
-	// Check error message for duplicate key indicators
-	errStr := strings.ToLower(err.Error())
-	duplicateKeywords := []string{
+	// Driver-agnostic fallback.
+	msg := strings.ToLower(err.Error())
+	for _, kw := range []string{
 		"duplicate key",
 		"unique constraint",
 		"unique violation",
 		"already exists",
 		"23505",
-	}
-
-	for _, keyword := range duplicateKeywords {
-		if strings.Contains(errStr, keyword) {
+	} {
+		if strings.Contains(msg, kw) {
 			return true
 		}
 	}
-
 	return false
 }
