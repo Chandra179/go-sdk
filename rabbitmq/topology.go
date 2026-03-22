@@ -11,8 +11,8 @@ type TopologyManager struct {
 	client *Client
 }
 
-// NewTopologyManager creates a new topology manager
-func NewTopologyManager(client *Client) *TopologyManager {
+// NewTopologyManager creates a new TopologyDeclarer backed by client.
+func NewTopologyManager(client *Client) TopologyDeclarer {
 	return &TopologyManager{client: client}
 }
 

@@ -1,6 +1,8 @@
 package rabbitmq
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -9,6 +11,34 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+// ErrNotConnected is returned when an operation is attempted while the client is not connected.
+var ErrNotConnected = errors.New("rabbitmq: client not connected")
+
+// Publisher sends messages to RabbitMQ exchanges or queues.
+type Publisher interface {
+	PublishMessage(ctx context.Context, opts PublishOptions, payload interface{}) error
+	SendMessage(ctx context.Context, queueName string, payload interface{}) error
+	SendMessageWithHeaders(ctx context.Context, queueName string, payload interface{}, headers map[string]interface{}) error
+	SendToTopic(ctx context.Context, exchange, routingKey string, payload interface{}) error
+	SendToTopicWithHeaders(ctx context.Context, exchange, routingKey string, payload interface{}, headers map[string]interface{}) error
+	PublishBatch(ctx context.Context, opts PublishOptions, payloads []interface{}) error
+}
+
+// Subscriber consumes messages from RabbitMQ queues.
+type Subscriber interface {
+	StartConsumer(ctx context.Context, opts ConsumeOptions, handler MessageHandler) error
+	ConsumeWithDefaults(ctx context.Context, queueName string, handler MessageHandler) error
+}
+
+// TopologyDeclarer declares queues, exchanges, and bindings.
+type TopologyDeclarer interface {
+	DeclareQueue(config QueueConfig) (*amqp.Queue, error)
+	DeclareExchange(config ExchangeConfig) error
+	BindQueue(config BindingConfig) error
+	SetupDeadLetterExchange(mainQueueName, dlxName string, retryTTL int) error
+	SetupQueueWithDLX(queueName, dlxName string) (*amqp.Queue, error)
+}
 
 // ConnectionState represents the current state of the connection
 type ConnectionState int32
@@ -254,7 +284,7 @@ func (c *Client) reconnectWithBackoff() {
 // GetPublisherChannel returns a channel from the publisher pool
 func (c *Client) GetPublisherChannel() (*amqp.Channel, error) {
 	if c.state.Load() != int32(StateConnected) {
-		return nil, fmt.Errorf("client not connected")
+		return nil, ErrNotConnected
 	}
 
 	select {
@@ -285,7 +315,7 @@ func (c *Client) ReturnPublisherChannel(ch *amqp.Channel) {
 // CreateConsumerChannel creates a new consumer channel for the given connection
 func (c *Client) CreateConsumerChannel() (*amqp.Channel, error) {
 	if c.state.Load() != int32(StateConnected) {
-		return nil, fmt.Errorf("client not connected")
+		return nil, ErrNotConnected
 	}
 
 	ch, err := c.consumerConn.Channel()

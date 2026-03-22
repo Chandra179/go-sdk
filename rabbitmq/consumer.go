@@ -22,8 +22,8 @@ type Consumer struct {
 	tracer trace.Tracer
 }
 
-// NewConsumer creates a new Consumer instance
-func NewConsumer(client *Client, logger *slog.Logger) *Consumer {
+// NewConsumer creates a new Subscriber backed by client.
+func NewConsumer(client *Client, logger *slog.Logger) Subscriber {
 	return &Consumer{
 		client: client,
 		logger: logger,
@@ -210,15 +210,17 @@ func (c *Consumer) ConsumeWithDefaults(ctx context.Context, queueName string, ha
 
 // BatchConsumer handles batch message consumption
 type BatchConsumer struct {
-	consumer      *Consumer
+	consumer      Subscriber
+	logger        *slog.Logger
 	batchSize     int
 	flushInterval int
 }
 
 // NewBatchConsumer creates a batch consumer
-func NewBatchConsumer(consumer *Consumer, batchSize, flushInterval int) *BatchConsumer {
+func NewBatchConsumer(consumer Subscriber, logger *slog.Logger, batchSize, flushInterval int) *BatchConsumer {
 	return &BatchConsumer{
 		consumer:      consumer,
+		logger:        logger,
 		batchSize:     batchSize,
 		flushInterval: flushInterval,
 	}
@@ -243,7 +245,7 @@ func (bc *BatchConsumer) StartBatchConsumer(ctx context.Context, opts ConsumeOpt
 			// Acknowledge all messages in batch
 			for _, d := range deliveries {
 				if err := d.Ack(false); err != nil {
-					bc.consumer.logger.Error("failed to ack batch message", "error", err)
+					bc.logger.Error("failed to ack batch message", "error", err)
 				}
 			}
 			batch = nil

@@ -91,7 +91,7 @@ func NewDefaultConfig() *Config {
 // Note: All fields are required - values must be loaded from the YAML configuration.
 func (c *Config) ApplyDefaults() error {
 	if c.URL == "" {
-		return errors.New("rabbitmq: URL is required")
+		return ErrURLRequired
 	}
 
 	if c.ConnectionName == "" {

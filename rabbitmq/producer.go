@@ -19,8 +19,8 @@ type Producer struct {
 	tracer trace.Tracer
 }
 
-// NewProducer creates a new Producer instance
-func NewProducer(client *Client) *Producer {
+// NewProducer creates a new Publisher backed by client.
+func NewProducer(client *Client) Publisher {
 	return &Producer{
 		client: client,
 		tracer: otel.Tracer("rabbitmq-producer"),
