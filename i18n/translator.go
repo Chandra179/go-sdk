@@ -1,0 +1,133 @@
+package i18n
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
+
+	gotext "github.com/nicksnyder/go-i18n/v2/i18n"
+	"golang.org/x/text/language"
+)
+
+type translator struct {
+	bundle         *gotext.Bundle
+	locales        []string
+	fallbackLocale string
+
+	// Cache localizers to prevent heavy allocations and parsing on every call
+	localizers   map[string]*gotext.Localizer
+	localizersMu sync.RWMutex
+}
+
+// NewTranslator creates a Translator that loads messages from the provided files.
+func NewTranslator(cfg Config) (Translator, error) {
+	if cfg.DefaultLocale == "" {
+		return nil, fmt.Errorf("%w: DefaultLocale is required", ErrBundleLoad)
+	}
+	if len(cfg.MessageFiles) == 0 {
+		return nil, fmt.Errorf("%w: at least one MessageFile is required", ErrBundleLoad)
+	}
+
+	// Default to JSON
+	if cfg.Format == "" {
+		cfg.Format = "json"
+	}
+	if cfg.Format != "json" {
+		// Keeping it strictly JSON for this constructor to ensure it works out of the box.
+		// If you need TOML, create a separate NewTomlTranslator or pass the unmarshal func in Config.
+		return nil, fmt.Errorf("%w: unsupported format %q (only 'json' is supported here)", ErrBundleLoad, cfg.Format)
+	}
+
+	defaultLang, err := language.Parse(cfg.DefaultLocale)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid DefaultLocale %q: %v", ErrBundleLoad, cfg.DefaultLocale, err)
+	}
+
+	bundle := gotext.NewBundle(defaultLang)
+	bundle.RegisterUnmarshalFunc("json", json.Unmarshal)
+
+	var locales []string
+	for _, file := range cfg.MessageFiles {
+		mf, err := bundle.LoadMessageFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to load %q: %v", ErrBundleLoad, file, err)
+		}
+		locales = append(locales, mf.Tag.String())
+	}
+
+	return &translator{
+		bundle:         bundle,
+		locales:        locales,
+		fallbackLocale: cfg.FallbackLocale,
+		localizers:     make(map[string]*gotext.Localizer),
+	}, nil
+}
+
+// getLocalizer handles the thread-safe retrieval or creation of a localizer
+func (t *translator) getLocalizer(locale string) (*gotext.Localizer, error) {
+	// Fast path: check cache with a read lock
+	t.localizersMu.RLock()
+	loc, exists := t.localizers[locale]
+	t.localizersMu.RUnlock()
+
+	if exists {
+		return loc, nil
+	}
+
+	// Slow path: parse and create with a write lock
+	t.localizersMu.Lock()
+	defer t.localizersMu.Unlock()
+
+	// Double-check pattern in case another goroutine created it while we were waiting for the lock
+	if loc, exists := t.localizers[locale]; exists {
+		return loc, nil
+	}
+
+	lang, err := language.Parse(locale)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid locale %q: %v", ErrLocaleNotFound, locale, err)
+	}
+
+	// Create the localizer with the requested language AND the fallback language
+	var newLoc *gotext.Localizer
+	if t.fallbackLocale != "" && t.fallbackLocale != locale {
+		newLoc = gotext.NewLocalizer(t.bundle, lang.String(), t.fallbackLocale)
+	} else {
+		newLoc = gotext.NewLocalizer(t.bundle, lang.String())
+	}
+
+	t.localizers[locale] = newLoc
+	return newLoc, nil
+}
+
+func (t *translator) T(_ context.Context, locale, messageID string, templateData map[string]any, pluralCount int) (string, error) {
+	localizer, err := t.getLocalizer(locale)
+	if err != nil {
+		return "", err
+	}
+
+	lc := &gotext.LocalizeConfig{
+		MessageID:    messageID,
+		TemplateData: templateData,
+	}
+	if pluralCount >= 0 {
+		lc.PluralCount = pluralCount
+	}
+
+	msg, err := localizer.Localize(lc)
+	if err != nil {
+		var notFound *gotext.MessageNotFoundErr
+		if errors.As(err, &notFound) {
+			return "", fmt.Errorf("%w: %v", ErrMessageNotFound, err)
+		}
+		return "", fmt.Errorf("%w: %v", ErrBundleLoad, err)
+	}
+
+	return msg, nil
+}
+
+func (t *translator) Locales() []string {
+	return append([]string{}, t.locales...)
+}

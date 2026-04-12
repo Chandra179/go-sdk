@@ -1,0 +1,17 @@
+[
+  {
+    "id": "welcome",
+    "translation": "Welcome, {{.Name}}!"
+  },
+  {
+    "id": "item_count",
+    "translation": {
+      "one": "You have {{.Count}} item.",
+      "other": "You have {{.Count}} items."
+    }
+  },
+  {
+    "id": "greeting",
+    "translation": "Hello!"
+  }
+]
